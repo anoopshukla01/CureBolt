@@ -151,25 +151,32 @@ export const Header: React.FC<HeaderProps> = ({
             <span>Upload Rx</span>
           </button>
 
-          {/* Role Portal dropdown */}
-          <div className="hidden xl:flex items-center bg-zinc-900/90 border border-zinc-800 rounded-xl p-1 text-[11px] font-bold">
+          {/* Portal Switcher (Customer vs Pharmacy vs Admin) */}
+          <div className="flex items-center bg-zinc-900 border border-zinc-700/80 rounded-xl p-1 text-[11px] font-bold">
             <button
               onClick={() => onRoleChange('customer')}
-              className={`px-2.5 py-1 rounded-lg ${activeRole === 'customer' ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-white'}`}
+              className={`px-3 py-1.5 rounded-lg transition-all ${
+                activeRole === 'customer' ? 'bg-white text-black shadow-md font-black' : 'text-zinc-400 hover:text-white'
+              }`}
             >
-              Customer
+              Storefront
             </button>
             <button
               onClick={() => onRoleChange('pharmacy')}
-              className={`px-2.5 py-1 rounded-lg ${activeRole === 'pharmacy' ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-white'}`}
+              className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all ${
+                activeRole === 'pharmacy' ? 'bg-emerald-600 text-white shadow-md font-black' : 'text-emerald-400 hover:text-emerald-300'
+              }`}
             >
-              Pharmacy
+              <span>Pharmacy Portal</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-pulse hidden sm:inline-block" />
             </button>
             <button
               onClick={() => onRoleChange('admin')}
-              className={`px-2.5 py-1 rounded-lg ${activeRole === 'admin' ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-white'}`}
+              className={`px-3 py-1.5 rounded-lg transition-all ${
+                activeRole === 'admin' ? 'bg-zinc-700 text-white shadow-md font-black' : 'text-zinc-400 hover:text-white'
+              }`}
             >
-              Admin & COD
+              Admin
             </button>
           </div>
 

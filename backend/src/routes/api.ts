@@ -554,6 +554,234 @@ apiRouter.post('/pharmacy/orders/:id/pack', (req: Request, res: Response) => {
 });
 
 // ============================================================================
+// 5B. PHARMACY INVENTORY & MEDICINE IMPORTER
+// ============================================================================
+apiRouter.get('/pharmacy/inventory', (req: Request, res: Response) => {
+  const pharmacyId = req.query.pharmacyId as string || 'pharm-gkp-1';
+  const inv = Array.from(dbStore.inventory.values()).filter(i => i.pharmacyId === pharmacyId);
+  const items = inv.map(i => {
+    const product = dbStore.products.get(i.productId);
+    return {
+      inventoryId: i.id,
+      pharmacyId: i.pharmacyId,
+      productId: i.productId,
+      product,
+      availableQuantity: i.availableQuantity,
+      reservedQuantity: i.reservedQuantity,
+      mrp: i.mrp,
+      sellingPrice: i.sellingPrice,
+      isAvailableOverride: i.isAvailableOverride,
+      batches: i.batches
+    };
+  });
+  return res.json({ items, total: items.length });
+});
+
+apiRouter.post('/pharmacy/products/create', (req: Request, res: Response) => {
+  const schema = z.object({
+    pharmacyId: z.string().default('pharm-gkp-1'),
+    name: z.string().min(2),
+    brand: z.string().min(1),
+    genericSaltName: z.string().optional(),
+    categoryDomain: z.enum(['human', 'veterinary']),
+    categoryId: z.string().default('cat-general'),
+    formulation: z.string().default('Tablet'),
+    strength: z.string().optional(),
+    packSize: z.string().default('1 Strip'),
+    manufacturer: z.string().min(1),
+    mrp: z.number().positive(),
+    sellingPrice: z.number().positive(),
+    availableQuantity: z.number().int().nonnegative(),
+    scheduleType: z.enum(['OTC', 'Schedule H', 'Schedule H1', 'Schedule X']).default('OTC'),
+    requiresPrescription: z.boolean().default(false),
+    batchNumber: z.string().default(`BATCH-${Date.now().toString().slice(-6)}`),
+    expiryDate: z.string().default('2027-12-31'),
+    speciesRestrictions: z.array(z.object({
+      speciesName: z.string(),
+      withdrawalPeriodDays: z.number(),
+      precautions: z.string()
+    })).optional()
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
+  }
+
+  const data = parsed.data;
+
+  // Strict check constraint: sellingPrice <= mrp
+  if (data.sellingPrice > data.mrp) {
+    return res.status(400).json({ 
+      error: `Statutory violation: Selling price (₹${data.sellingPrice}) cannot exceed MRP (₹${data.mrp}).` 
+    });
+  }
+
+  const prodId = `prd-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+  const product: Product = {
+    id: prodId,
+    name: data.name,
+    brand: data.brand,
+    genericSaltName: data.genericSaltName,
+    categoryId: data.categoryId,
+    categoryDomain: data.categoryDomain,
+    formulation: data.formulation,
+    strength: data.strength,
+    packSize: data.packSize,
+    manufacturer: data.manufacturer,
+    mrp: data.mrp,
+    requiresPrescription: data.requiresPrescription || (data.scheduleType !== 'OTC'),
+    isOtcDirect: data.scheduleType === 'OTC' && !data.requiresPrescription,
+    scheduleType: data.scheduleType,
+    imageUrl: `/products/${data.categoryDomain === 'veterinary' ? 'vet-default.png' : 'pharma-default.png'}`,
+    speciesRestrictions: data.speciesRestrictions
+  };
+
+  dbStore.products.set(product.id, product);
+
+  const invItem: PharmacyInventoryItem = {
+    id: `inv-${Date.now()}`,
+    pharmacyId: data.pharmacyId,
+    productId: product.id,
+    availableQuantity: data.availableQuantity,
+    reservedQuantity: 0,
+    mrp: data.mrp,
+    sellingPrice: data.sellingPrice,
+    isAvailableOverride: false,
+    batches: [{
+      batchNumber: data.batchNumber,
+      mfgDate: '2024-01-01',
+      expiryDate: data.expiryDate,
+      quantity: data.availableQuantity
+    }]
+  };
+
+  dbStore.inventory.set(invItem.id, invItem);
+  dbStore.recordAudit('pharm-gkp-1', 'LIST_PRODUCT', 'product', product.id, {
+    name: product.name,
+    mrp: data.mrp,
+    sellingPrice: data.sellingPrice,
+    quantity: data.availableQuantity
+  });
+
+  return res.status(201).json({
+    success: true,
+    message: `Medicine '${product.name}' listed successfully on Medcure Gorakhpur.`,
+    product,
+    inventory: invItem
+  });
+});
+
+apiRouter.post('/pharmacy/products/bulk-import', (req: Request, res: Response) => {
+  const schema = z.object({
+    pharmacyId: z.string().default('pharm-gkp-1'),
+    medicines: z.array(z.object({
+      name: z.string().min(2),
+      brand: z.string().min(1),
+      genericSaltName: z.string().optional(),
+      categoryDomain: z.enum(['human', 'veterinary']).default('human'),
+      categoryId: z.string().default('cat-general'),
+      formulation: z.string().default('Tablet'),
+      strength: z.string().optional(),
+      packSize: z.string().default('1 Strip'),
+      manufacturer: z.string().min(1),
+      mrp: z.number().positive(),
+      sellingPrice: z.number().positive(),
+      availableQuantity: z.number().int().nonnegative().default(50),
+      scheduleType: z.enum(['OTC', 'Schedule H', 'Schedule H1', 'Schedule X']).default('OTC'),
+      requiresPrescription: z.boolean().default(false),
+      batchNumber: z.string().optional(),
+      expiryDate: z.string().default('2027-12-31')
+    }))
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error });
+  }
+
+  const { pharmacyId, medicines } = parsed.data;
+  const imported: Product[] = [];
+
+  for (const m of medicines) {
+    const finalSellingPrice = m.sellingPrice > m.mrp ? m.mrp : m.sellingPrice;
+    const prodId = `prd-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+
+    const product: Product = {
+      id: prodId,
+      name: m.name,
+      brand: m.brand,
+      genericSaltName: m.genericSaltName,
+      categoryId: m.categoryId,
+      categoryDomain: m.categoryDomain,
+      formulation: m.formulation,
+      strength: m.strength,
+      packSize: m.packSize,
+      manufacturer: m.manufacturer,
+      mrp: m.mrp,
+      requiresPrescription: m.requiresPrescription || (m.scheduleType !== 'OTC'),
+      isOtcDirect: m.scheduleType === 'OTC' && !m.requiresPrescription,
+      scheduleType: m.scheduleType,
+      imageUrl: `/products/${m.categoryDomain === 'veterinary' ? 'vet-default.png' : 'pharma-default.png'}`
+    };
+
+    dbStore.products.set(product.id, product);
+
+    const invItem: PharmacyInventoryItem = {
+      id: `inv-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      pharmacyId,
+      productId: product.id,
+      availableQuantity: m.availableQuantity,
+      reservedQuantity: 0,
+      mrp: m.mrp,
+      sellingPrice: finalSellingPrice,
+      isAvailableOverride: false,
+      batches: [{
+        batchNumber: m.batchNumber || `BATCH-${Date.now().toString().slice(-6)}`,
+        mfgDate: '2024-01-01',
+        expiryDate: m.expiryDate,
+        quantity: m.availableQuantity
+      }]
+    };
+
+    dbStore.inventory.set(invItem.id, invItem);
+    imported.push(product);
+  }
+
+  return res.json({
+    success: true,
+    imported_count: imported.length,
+    message: `Successfully imported and listed ${imported.length} medicines on Medcure storefront.`,
+    products: imported
+  });
+});
+
+apiRouter.patch('/pharmacy/inventory/:productId', (req: Request, res: Response) => {
+  const { productId } = req.params;
+  const pharmacyId = (req.body.pharmacyId as string) || 'pharm-gkp-1';
+  const { availableQuantity, sellingPrice, isAvailableOverride } = req.body;
+
+  const inv = Array.from(dbStore.inventory.values()).find(
+    i => i.pharmacyId === pharmacyId && i.productId === productId
+  );
+
+  if (!inv) {
+    return res.status(404).json({ error: 'Inventory record not found.' });
+  }
+
+  if (availableQuantity !== undefined) inv.availableQuantity = availableQuantity;
+  if (isAvailableOverride !== undefined) inv.isAvailableOverride = isAvailableOverride;
+  if (sellingPrice !== undefined) {
+    if (sellingPrice > inv.mrp) {
+      return res.status(400).json({ error: `Selling price cannot exceed MRP (₹${inv.mrp}).` });
+    }
+    inv.sellingPrice = sellingPrice;
+  }
+
+  return res.json({ success: true, inventory: inv });
+});
+
+// ============================================================================
 // 6. PAYMENTS & WEBHOOKS
 // ============================================================================
 apiRouter.post('/payments/create-order', (req: Request, res: Response) => {

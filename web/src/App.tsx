@@ -12,6 +12,7 @@ import { Footer } from './components/Footer';
 import { CartDrawer } from './components/CartDrawer';
 import { OcrModal } from './components/OcrModal';
 import { LiveTelemetryModal } from './components/LiveTelemetryModal';
+import { PharmacyPortal } from './components/PharmacyPortal';
 
 const API_BASE = 'http://localhost:4000/api/v1';
 
@@ -25,6 +26,21 @@ export default function App() {
   // Selected PDP Product (If non-null, shows Screenshot 2 Product Detail Page)
   const [selectedPdpProduct, setSelectedPdpProduct] = useState<Product | null>(null);
 
+  const handleMedicineListed = (newProduct: Product) => {
+    setProducts(prev => {
+      const exists = prev.find(p => p.id === newProduct.id);
+      if (exists) return prev;
+      return [newProduct, ...prev];
+    });
+    fetchProducts();
+  };
+
+  const handlePreviewOnStore = (product: Product) => {
+    setSelectedDomain(product.category_domain);
+    setSelectedPdpProduct(product);
+    setActiveRole('customer');
+  };
+
   // Products & Cart
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -35,7 +51,7 @@ export default function App() {
   const [placingOrder, setPlacingOrder] = useState(false);
 
   // Active Orders & Live Tracking
-  const [orders, setOrders] = useState<Order[]>([]);
+  const [, setOrders] = useState<Order[]>([]);
   const [activeTrackOrder, setActiveTrackOrder] = useState<Order | null>(null);
   const [showTrackingModal, setShowTrackingModal] = useState(false);
 
@@ -590,28 +606,12 @@ export default function App() {
           )}
         </main>
       ) : activeRole === 'pharmacy' ? (
-        /* PHARMACY PARTNER CONSOLE */
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1">
-          <div className="bg-[#18181b] border border-[#27272a] rounded-2xl p-6">
-            <h2 className="text-xl font-black text-white mb-2">Gorakhpur Medicos & Veterinary Care</h2>
-            <p className="text-xs text-zinc-400 mb-6">Licensed Partner Pharmacy Portal (Shop 14, Cinema Road, Golghar) • Licence: UP-GKP-20-847291</p>
-
-            <h3 className="text-sm font-extrabold text-white mb-3">Incoming Orders for Fulfillment:</h3>
-            <div className="space-y-3">
-              {orders.map(o => (
-                <div key={o.id} className="p-4 bg-zinc-900 border border-zinc-800 rounded-xl flex items-center justify-between">
-                  <div>
-                    <span className="font-extrabold text-white block text-sm">{o.orderCode} ({o.categoryDomain.toUpperCase()})</span>
-                    <span className="text-xs text-zinc-400">Status: <strong className="text-emerald-400">{o.state}</strong> • Payment: {o.paymentMode || 'COD'}</span>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-sm font-black text-white block">₹{o.payableAmount}</span>
-                    <span className="text-[11px] text-zinc-400">OTP: {o.deliveryOtp}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+        /* PHARMACY PARTNER INVENTORY & MEDICINE IMPORTER PORTAL */
+        <main className="flex-1">
+          <PharmacyPortal
+            onMedicineListed={handleMedicineListed}
+            onPreviewOnStore={handlePreviewOnStore}
+          />
         </main>
       ) : (
         /* ADMIN & COD RECONCILIATION STATION */
