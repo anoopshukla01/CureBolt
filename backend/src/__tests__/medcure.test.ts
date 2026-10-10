@@ -186,4 +186,160 @@ describe('Medcure Platform Core Engine & Fulfilment Workflow', () => {
     expect(catRes.body.suggestedProductIds.length).toBeGreaterThan(0);
   });
 
+  it('6. Assistive Prescription OCR: Extracts text and fuzzy matches candidate medicines', async () => {
+    // Step A: Upload Prescription
+    const uploadRes = await request(app)
+      .post('/api/v1/prescriptions/upload-intent')
+      .send({
+        userId: 'usr-cust-1',
+        fileName: 'dr_rao_prescription.pdf'
+      });
+    const rxId = uploadRes.body.prescription_id;
+
+    // Step B: Run OCR analysis
+    const ocrRes = await request(app)
+      .post(`/api/v1/prescriptions/${rxId}/ocr`);
+
+    expect(ocrRes.status).toBe(200);
+    expect(ocrRes.body.status).toBe('ocr_processed');
+    expect(ocrRes.body.extracted_text).toContain('Dr. K. N. Rao');
+    expect(ocrRes.body.candidate_matches.length).toBeGreaterThan(0);
+    
+    // Check Dolo and Glycomet match confidence
+    const doloMatch = ocrRes.body.candidate_matches.find((m: any) => m.productId === 'prd-dolo-650');
+    expect(doloMatch).toBeDefined();
+    expect(doloMatch.confidence).toBeGreaterThan(0.85);
+  });
+
+  it('7. COD Order Flow: Creates OTC order, bypasses gateway, tracks doorstep collection', async () => {
+    // Create OTC COD Order (Dolo 650 is OTC)
+    const orderRes = await request(app)
+      .post('/api/v1/orders')
+      .send({
+        userId: 'usr-cust-1',
+        pharmacyId: 'pharm-gkp-1',
+        deliveryAddressId: 'addr-cust-1',
+        categoryDomain: 'human',
+        paymentMode: 'COD',
+        items: [{ productId: 'prd-dolo-650', quantity: 2 }]
+      });
+
+    expect(orderRes.status).toBe(201);
+    const order = orderRes.body.order;
+    expect(order.paymentMode).toBe('COD');
+    // COD OTC orders move directly to ACCEPTED without requiring online payment webhook
+    expect(order.state).toBe('ACCEPTED');
+
+    // Pharmacy packs
+    const packRes = await request(app)
+      .post(`/api/v1/pharmacy/orders/${order.id}/pack`)
+      .send({
+        staffId: 'usr-staff-1',
+        batchAllocations: [{ productId: 'prd-dolo-650', batchNumber: 'DL-24A91', expiryDate: '2027-02-28' }]
+      });
+    expect(packRes.body.order.state).toBe('PACKED');
+
+    // Assign & Out for delivery
+    const assignRes = await request(app).post('/api/v1/dispatch/assign-rider').send({ orderId: order.id, riderId: 'rider-1' });
+    expect(assignRes.status).toBe(200);
+    await request(app).post(`/api/v1/rider/orders/${order.id}/pickup`);
+
+    // Complete delivery with OTP and COD collection
+    const completeRes = await request(app)
+      .post(`/api/v1/rider/orders/${order.id}/complete-delivery`)
+      .send({ deliveryOtp: order.deliveryOtp });
+
+    expect(completeRes.status).toBe(200);
+    expect(completeRes.body.order.state).toBe('DELIVERED');
+    expect(completeRes.body.cod_collection).toBeDefined();
+    expect(completeRes.body.cod_collection.amountCollected).toBe(order.payableAmount);
+    expect(completeRes.body.cod_collection.receiptNumber).toContain('COD-GKP-');
+  });
+
+  it('8. Live Rider GPS Tracking & Dynamic ETA: Calculates distance, ETA in minutes, and staleness flag', async () => {
+    // Create and dispatch an order
+    const orderRes = await request(app)
+      .post('/api/v1/orders')
+      .send({
+        userId: 'usr-cust-1',
+        pharmacyId: 'pharm-gkp-1',
+        deliveryAddressId: 'addr-cust-1',
+        categoryDomain: 'veterinary',
+        paymentMode: 'COD',
+        items: [{ productId: 'prd-himcal-1l', quantity: 1 }]
+      });
+    const orderId = orderRes.body.order.id;
+
+    // Pack order
+    await request(app)
+      .post(`/api/v1/pharmacy/orders/${orderId}/pack`)
+      .send({
+        staffId: 'usr-staff-1',
+        batchAllocations: [{ productId: 'prd-himcal-1l', batchNumber: 'HC-202409', expiryDate: '2026-08-31' }]
+      });
+
+    // Assign rider
+    await request(app).post('/api/v1/dispatch/assign-rider').send({ orderId, riderId: 'rider-1' });
+
+    // Post GPS location update from rider's device
+    const locRes = await request(app)
+      .post('/api/v1/rider/location-update')
+      .send({
+        riderId: 'rider-1',
+        orderId,
+        latitude: 26.7580,
+        longitude: 83.3710,
+        speedKmh: 24,
+        heading: 60
+      });
+    expect(locRes.status).toBe(200);
+    expect(locRes.body.snapshot.latitude).toBe(26.7580);
+
+    // Fetch tracking view
+    const trackRes = await request(app)
+      .get(`/api/v1/orders/${orderId}/tracking`);
+
+    expect(trackRes.status).toBe(200);
+    expect(trackRes.body.distance_km).toBeGreaterThan(0);
+    expect(trackRes.body.eta_minutes).toBeGreaterThan(0);
+    expect(trackRes.body.eta_display).toContain('Arriving in about');
+    expect(trackRes.body.is_stale).toBe(false);
+    expect(trackRes.body.rider.name).toBe('Vikas Yadav');
+  });
+
+  it('9. Admin COD Reconciliation: Inspects outstanding cash-in-hand and records bank settlement', async () => {
+    // Fetch reconciliation summary
+    const reconRes = await request(app)
+      .get('/api/v1/admin/cod/reconciliation');
+
+    expect(reconRes.status).toBe(200);
+    expect(reconRes.body.riders.length).toBeGreaterThan(0);
+    const rider = reconRes.body.riders.find((r: any) => r.id === 'rider-1');
+    expect(rider).toBeDefined();
+
+    const cashToSettle = rider.currentCashInHand;
+    if (cashToSettle > 0) {
+      // Settle cash
+      const settleRes = await request(app)
+        .post('/api/v1/admin/cod/settle')
+        .send({
+          riderId: 'rider-1',
+          amount: cashToSettle,
+          depositReference: 'SBI-GKP-CASH-DEP-98124',
+          verifiedBy: 'usr-admin-1'
+        });
+
+      expect(settleRes.status).toBe(200);
+      expect(settleRes.body.remaining_cash_in_hand).toBe(0);
+    }
+  });
+
+  it('10. Statutory Safety & MRP Rule: Selling price must never exceed MRP', async () => {
+    const res = await request(app).get('/api/v1/catalogue/products');
+    expect(res.status).toBe(200);
+    res.body.items.forEach((p: any) => {
+      expect(p.selling_price).toBeLessThanOrEqual(p.mrp);
+    });
+  });
+
 });

@@ -3,7 +3,7 @@ import { OrderState } from '../types';
 export class OrderStateMachine {
   // Explicit permitted transitions map
   private static readonly transitions: Record<OrderState, OrderState[]> = {
-    CREATED: ['PAYMENT_PENDING', 'PHARMACY_REVIEW', 'CANCELLED'],
+    CREATED: ['PAYMENT_PENDING', 'PHARMACY_REVIEW', 'ACCEPTED', 'CANCELLED'],
     PAYMENT_PENDING: ['PAYMENT_CONFIRMED', 'CANCELLED'],
     PAYMENT_CONFIRMED: ['PHARMACY_REVIEW', 'PACKING', 'CANCELLED', 'REFUND_PENDING'],
     PHARMACY_REVIEW: ['ACCEPTED', 'REJECTED'],

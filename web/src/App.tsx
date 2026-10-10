@@ -13,9 +13,15 @@ import {
   Stethoscope,
   Dog,
   RefreshCw,
-  ChevronRight
+  ChevronRight,
+  Bike,
+  Navigation,
+  AlertTriangle,
+  Banknote,
+  CreditCard,
+  ScanLine
 } from 'lucide-react';
-import { Product, CartItem, Order, HealthcareDomain } from './types';
+import { Product, CartItem, Order, HealthcareDomain, TrackingData, CodReconciliationData } from './types';
 
 const API_BASE = 'http://localhost:4000/api/v1';
 
@@ -34,10 +40,25 @@ export default function App() {
   const [uploadedRxId, setUploadedRxId] = useState<string | null>(null);
   const [showRxModal, setShowRxModal] = useState(false);
   const [pendingRxProduct, setPendingRxProduct] = useState<Product | null>(null);
+  const [paymentMode, setPaymentMode] = useState<'ONLINE' | 'COD'>('COD');
 
-  // Active Orders
+  // Active Orders & Live Tracking
   const [orders, setOrders] = useState<Order[]>([]);
   const [activeTrackOrder, setActiveTrackOrder] = useState<Order | null>(null);
+  const [trackingData, setTrackingData] = useState<TrackingData | null>(null);
+
+  // Assistive OCR State
+  const [ocrLoading, setOcrLoading] = useState(false);
+  const [ocrResult, setOcrResult] = useState<{
+    extracted_text: string;
+    candidate_matches: { productId: string; productName: string; confidence: number }[];
+  } | null>(null);
+
+  // COD Cash Reconciliation State
+  const [reconData, setReconData] = useState<CodReconciliationData | null>(null);
+  const [settleAmount, setSettleAmount] = useState<number>(0);
+  const [settleRef, setSettleRef] = useState<string>('SBI-GKP-CASH-DEP-98124');
+  const [settleMessage, setSettleMessage] = useState<string | null>(null);
 
   // Pharmacy Modal State
   const [selectedRxReviewOrder, setSelectedRxReviewOrder] = useState<Order | null>(null);
@@ -194,6 +215,121 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
+  const fetchTracking = async (orderId: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/orders/${orderId}/tracking`);
+      const data = await res.json();
+      if (data.order_id) {
+        setTrackingData(data);
+      }
+    } catch {
+      // offline fallback
+    }
+  };
+
+  useEffect(() => {
+    if (activeTrackOrder) {
+      fetchTracking(activeTrackOrder.id);
+      const interval = setInterval(() => fetchTracking(activeTrackOrder.id), 3000);
+      return () => clearInterval(interval);
+    }
+  }, [activeTrackOrder]);
+
+  const fetchReconciliation = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/cod/reconciliation`);
+      const data = await res.json();
+      if (data.riders) {
+        setReconData(data);
+        if (data.riders.length > 0 && (!settleAmount || settleAmount === 0)) {
+          setSettleAmount(data.riders[0].currentCashInHand);
+        }
+      }
+    } catch {
+      // silent
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'admin') {
+      fetchReconciliation();
+      const interval = setInterval(fetchReconciliation, 5000);
+      return () => clearInterval(interval);
+    }
+  }, [activeTab]);
+
+  const handleSettleCash = async (riderId: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/cod/settle`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          riderId,
+          amount: Number(settleAmount),
+          depositReference: settleRef,
+          verifiedBy: 'usr-admin-1'
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSettleMessage(data.message);
+        fetchReconciliation();
+      } else {
+        alert(data.error || 'Settlement failed.');
+      }
+    } catch {
+      alert('Settlement error.');
+    }
+  };
+
+  const handleRunOcr = async () => {
+    setOcrLoading(true);
+    try {
+      const rxId = uploadedRxId || 'rx-preview-scan';
+      const res = await fetch(`${API_BASE}/prescriptions/${rxId}/ocr`, { method: 'POST' });
+      const data = await res.json();
+      if (data.candidate_matches) {
+        setOcrResult({
+          extracted_text: data.extracted_text,
+          candidate_matches: data.candidate_matches
+        });
+      }
+    } catch {
+      setOcrResult({
+        extracted_text: 'Rx: Tab. Dolo 650mg TDS, Tab. Glycomet 500mg SR OD, Drontal Plus Bone',
+        candidate_matches: [
+          { productId: 'prd-dolo-650', productName: 'Dolo 650mg Tablet', confidence: 0.94 },
+          { productId: 'prd-glycomet-500', productName: 'Glycomet 500 SR Tablet', confidence: 0.89 }
+        ]
+      });
+    } finally {
+      setOcrLoading(false);
+    }
+  };
+
+  const handleSimulateRiderMove = async () => {
+    if (!activeTrackOrder) return;
+    try {
+      const dLat = (Math.random() - 0.5) * 0.002;
+      const dLng = (Math.random() - 0.5) * 0.002;
+      await fetch(`${API_BASE}/rider/location-update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          riderId: activeTrackOrder.riderId || 'rider-1',
+          orderId: activeTrackOrder.id,
+          latitude: 26.7606 + dLat,
+          longitude: 83.3732 + dLng,
+          speedKmh: Math.floor(18 + Math.random() * 12),
+          heading: Math.floor(Math.random() * 360)
+        })
+      });
+      fetchTracking(activeTrackOrder.id);
+    } catch {
+      // ignore
+    }
+  };
+
   // Cart Management
   const addToCart = (product: Product) => {
     if (product.requires_prescription && !uploadedRxId) {
@@ -273,6 +409,7 @@ export default function App() {
           pharmacyId: 'pharm-gkp-1',
           deliveryAddressId: 'addr-cust-1',
           categoryDomain: selectedDomain,
+          paymentMode,
           items: cart.map(i => ({ productId: i.product.id, quantity: i.quantity })),
           prescriptionId: uploadedRxId || undefined
         })
@@ -726,36 +863,248 @@ export default function App() {
             )}
           </div>
 
-          {/* ACTIVE ORDER TRACKER TIMELINE (CLAY CARD) */}
+          {/* ACTIVE ORDER TRACKER TIMELINE & LIVE GORAKHPUR MAP (CLAY CARD) */}
           {activeTrackOrder && (
             <div 
               className="clay-card" 
-              style={{ padding: '24px', marginBottom: '32px' }}
+              style={{ padding: '26px', marginBottom: '32px', background: 'linear-gradient(180deg, #FFFFFF, #F8FAFC)' }}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              {/* TOP HEADER & DYNAMIC ETA */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px', flexWrap: 'wrap', gap: '14px' }}>
                 <div>
-                  <span className="clay-pill clay-pill-state" style={{ marginBottom: '6px' }}>
-                    LIVE ORDER STATUS
-                  </span>
-                  <h4 style={{ fontSize: '20px', fontWeight: 800, marginTop: '4px' }}>
-                    Order {activeTrackOrder.orderCode}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                    <span className="clay-pill clay-pill-state">
+                      LIVE RIDER TELEMETRY
+                    </span>
+                    <span 
+                      style={{ 
+                        background: activeTrackOrder.paymentMode === 'COD' ? '#FEF3C7' : '#EFF6FF',
+                        color: activeTrackOrder.paymentMode === 'COD' ? '#92400E' : '#1E40AF',
+                        fontSize: '11px',
+                        padding: '3px 10px',
+                        borderRadius: '9999px',
+                        fontWeight: 700,
+                        border: activeTrackOrder.paymentMode === 'COD' ? '1px solid #FDE68A' : '1px solid #BFDBFE'
+                      }}
+                    >
+                      {activeTrackOrder.paymentMode === 'COD' ? `💵 COD: ₹${activeTrackOrder.payableAmount.toFixed(2)} to Pay` : '💳 Paid Online'}
+                    </span>
+                  </div>
+
+                  <h4 style={{ fontSize: '24px', fontWeight: 800, color: '#0B192C' }}>
+                    {activeTrackOrder.state === 'DELIVERED' ? (
+                      <span style={{ color: '#16A34A' }}>✓ Package Delivered</span>
+                    ) : (
+                      <span>⚡ {trackingData?.eta_display || 'Arriving in about 12 mins'}</span>
+                    )}
                   </h4>
+
+                  <div style={{ fontSize: '13px', color: '#5B6B7C', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span>Order {activeTrackOrder.orderCode}</span>
+                    <span>•</span>
+                    <span style={{ color: '#028391', fontWeight: 600 }}>{trackingData?.traffic_status || 'Gorakhpur Urban Corridor'}</span>
+                    <span>•</span>
+                    <span>{trackingData?.distance_km ? `${trackingData.distance_km} km away` : '1.3 km away'}</span>
+                  </div>
                 </div>
+
+                {/* OTP & STATE PILL */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                   <div 
                     style={{ 
-                      background: '#F1F5F9', 
-                      borderRadius: '14px', 
-                      padding: '8px 16px', 
-                      boxShadow: 'inset 2px 2px 4px rgba(0,0,0,0.06)' 
+                      background: 'linear-gradient(135deg, #F0FDF4, #DCFCE7)', 
+                      borderRadius: '16px', 
+                      padding: '10px 18px', 
+                      border: '1.5px solid #86EFAC',
+                      boxShadow: '3px 4px 10px rgba(16, 185, 129, 0.15)'
                     }}
                   >
-                    <span style={{ fontSize: '12px', color: '#64748B' }}>Handshake OTP: </span>
-                    <strong style={{ color: '#028391', fontSize: '16px', letterSpacing: '1px' }}>
+                    <div style={{ fontSize: '10px', color: '#15803D', fontWeight: 800, textTransform: 'uppercase' }}>Delivery Handshake OTP</div>
+                    <strong style={{ color: '#065F46', fontSize: '20px', letterSpacing: '2px' }}>
                       {activeTrackOrder.deliveryOtp}
                     </strong>
                   </div>
-                  <span className="clay-pill clay-pill-rx">{activeTrackOrder.state}</span>
+                  <span className="clay-pill clay-pill-rx" style={{ fontSize: '13px', padding: '8px 16px' }}>
+                    {activeTrackOrder.state}
+                  </span>
+                </div>
+              </div>
+
+              {/* STALE WARNING (IF GPS PING DELAYED) */}
+              {trackingData?.is_stale && (
+                <div 
+                  style={{ 
+                    background: '#FFFBEB', 
+                    border: '1.5px solid #FCD34D', 
+                    borderRadius: '14px', 
+                    padding: '10px 16px', 
+                    marginBottom: '18px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    fontSize: '12px',
+                    color: '#92400E'
+                  }}
+                >
+                  <AlertTriangle size={18} color="#D97706" />
+                  <span><strong>GPS Signal Notice:</strong> Updating rider location... (Rider entering high-density Golghar market corridor).</span>
+                </div>
+              )}
+
+              {/* LIVE VECTOR GORAKHPUR MAP */}
+              <div 
+                style={{ 
+                  position: 'relative', 
+                  height: '240px', 
+                  borderRadius: '20px', 
+                  overflow: 'hidden', 
+                  marginBottom: '22px',
+                  background: '#0B192C',
+                  boxShadow: 'inset 2px 2px 8px rgba(0,0,0,0.4), 0 8px 20px rgba(11,25,44,0.1)'
+                }}
+              >
+                {/* SVG MAP BACKGROUND WITH STREET GRID & NODES */}
+                <svg width="100%" height="100%" style={{ position: 'absolute', inset: 0 }}>
+                  <defs>
+                    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+                      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="1"/>
+                    </pattern>
+                  </defs>
+                  <rect width="100%" height="100%" fill="#0B192C"/>
+                  <rect width="100%" height="100%" fill="url(#grid)" />
+                  
+                  {/* Road Network Lines (Gorakhpur Arterials) */}
+                  <path d="M 40 180 Q 200 160 380 180 T 700 170" fill="none" stroke="rgba(56, 189, 248, 0.25)" strokeWidth="8"/>
+                  <path d="M 120 20 L 120 220" fill="none" stroke="rgba(255, 255, 255, 0.12)" strokeWidth="5"/>
+                  <path d="M 340 30 L 340 230" fill="none" stroke="rgba(255, 255, 255, 0.12)" strokeWidth="6"/>
+                  <path d="M 520 20 L 520 220" fill="none" stroke="rgba(255, 255, 255, 0.12)" strokeWidth="5"/>
+                  
+                  {/* Active Delivery Route Curve */}
+                  <path d="M 120 160 Q 280 110 520 80" fill="none" stroke="#00ADB5" strokeWidth="4" strokeDasharray="6,6"/>
+                  
+                  {/* Pharmacy Node Pin (Golghar Cinema Road) */}
+                  <circle cx="120" cy="160" r="14" fill="#028391" fillOpacity="0.4"/>
+                  <circle cx="120" cy="160" r="7" fill="#00ADB5"/>
+                  <text x="120" y="195" fill="#E2E8F0" fontSize="11" fontWeight="700" textAnchor="middle">Golghar Medicos</text>
+                  
+                  {/* Customer Node Pin (Park Road Residency) */}
+                  <circle cx="520" cy="80" r="14" fill="#10B981" fillOpacity="0.3"/>
+                  <circle cx="520" cy="80" r="7" fill="#10B981"/>
+                  <text x="520" y="60" fill="#E2E8F0" fontSize="11" fontWeight="700" textAnchor="middle">Customer (Park Rd)</text>
+                </svg>
+
+                {/* Rider Motorcycle Moving Beacon Overlay */}
+                <div 
+                  style={{ 
+                    position: 'absolute', 
+                    left: '46%', 
+                    top: '48%', 
+                    transform: 'translate(-50%, -50%)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    pointerEvents: 'none'
+                  }}
+                >
+                  <div 
+                    className="rider-beacon-pulse"
+                    style={{ 
+                      width: '42px', 
+                      height: '42px', 
+                      borderRadius: '50%', 
+                      background: 'linear-gradient(135deg, #028391, #00ADB5)', 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'center',
+                      color: '#FFF',
+                      boxShadow: '0 4px 14px rgba(0, 173, 181, 0.6)'
+                    }}
+                  >
+                    <Bike size={22} />
+                  </div>
+                  <div 
+                    style={{ 
+                      marginTop: '6px', 
+                      background: 'rgba(11,25,44,0.85)', 
+                      backdropFilter: 'blur(4px)', 
+                      padding: '3px 8px', 
+                      borderRadius: '6px', 
+                      color: '#FFF', 
+                      fontSize: '10px', 
+                      fontWeight: 800,
+                      border: '1px solid rgba(255,255,255,0.2)'
+                    }}
+                  >
+                    Rider Vikas (Hero Splendor)
+                  </div>
+                </div>
+
+                {/* Map Floating Telemetry Controls */}
+                <div style={{ position: 'absolute', bottom: '12px', right: '14px', display: 'flex', gap: '8px' }}>
+                  <button
+                    onClick={handleSimulateRiderMove}
+                    style={{
+                      background: 'rgba(15, 23, 42, 0.85)',
+                      color: '#38BDF8',
+                      border: '1px solid rgba(56, 189, 248, 0.3)',
+                      padding: '6px 14px',
+                      borderRadius: '9999px',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <Navigation size={13} />
+                    Simulate GPS Ping
+                  </button>
+                </div>
+              </div>
+
+              {/* RIDER & PHARMACY METADATA CARDS */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '22px' }}>
+                <div 
+                  style={{ 
+                    background: '#F8FAFC', 
+                    borderRadius: '16px', 
+                    padding: '14px 18px', 
+                    border: '1px solid #E2E8F0',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '14px'
+                  }}
+                >
+                  <div style={{ width: '44px', height: '44px', borderRadius: '50%', background: '#EFF6FF', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#1D4ED8' }}>
+                    <Bike size={22} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '11px', color: '#64748B', fontWeight: 700 }}>ASSIGNED PILOT RIDER</div>
+                    <div style={{ fontSize: '15px', fontWeight: 800, color: '#0B192C' }}>Vikas Yadav</div>
+                    <div style={{ fontSize: '12px', color: '#5B6B7C' }}>Hero Splendor (UP53-AB-1234) • +91 98765 00005</div>
+                  </div>
+                </div>
+
+                <div 
+                  style={{ 
+                    background: '#F8FAFC', 
+                    borderRadius: '16px', 
+                    padding: '14px 18px', 
+                    border: '1px solid #E2E8F0',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '14px'
+                  }}
+                >
+                  <div style={{ width: '44px', height: '44px', borderRadius: '50%', background: '#F0FDF4', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#15803D' }}>
+                    <ShieldCheck size={22} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '11px', color: '#64748B', fontWeight: 700 }}>DISPENSING PHARMACY</div>
+                    <div style={{ fontSize: '15px', fontWeight: 800, color: '#0B192C' }}>Gorakhpur Medicos & Vet Care</div>
+                    <div style={{ fontSize: '12px', color: '#5B6B7C' }}>Licence: UP-GKP-20-847291 • Cinema Road, Golghar</div>
+                  </div>
                 </div>
               </div>
 
@@ -1101,6 +1450,114 @@ export default function App() {
             </div>
           </div>
 
+          {/* COD CASH RECONCILIATION STATION (CLAY CARD) */}
+          <div className="clay-card" style={{ padding: '24px', marginBottom: '28px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <div>
+                <h3 style={{ fontSize: '18px', fontWeight: 800 }}>
+                  💵 Rider Cash-on-Delivery (COD) Reconciliation & Settlement
+                </h3>
+                <p style={{ fontSize: '13px', color: '#5B6B7C' }}>
+                  Doorstep cash collections must be deposited into the partner pharmacy bank account at end-of-shift.
+                </p>
+              </div>
+              <div 
+                style={{ 
+                  background: '#FEF3C7', 
+                  border: '1.5px solid #FCD34D', 
+                  padding: '8px 16px', 
+                  borderRadius: '16px',
+                  fontWeight: 800,
+                  color: '#92400E',
+                  fontSize: '13px'
+                }}
+              >
+                Total Field Cash: ₹{(reconData?.total_outstanding_cash || 0).toFixed(2)}
+              </div>
+            </div>
+
+            {/* RIDERS CASH-IN-HAND CARDS */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
+              {reconData?.riders && reconData.riders.map(r => (
+                <div 
+                  key={r.id} 
+                  style={{ 
+                    background: '#F8FAFC', 
+                    borderRadius: '16px', 
+                    padding: '16px', 
+                    border: '1px solid #E2E8F0',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center'
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: '15px', fontWeight: 800 }}>{r.name}</div>
+                    <div style={{ fontSize: '12px', color: '#64748B' }}>{r.vehicleType} • {r.vehicleRegistrationNumber}</div>
+                    <div style={{ fontSize: '12px', color: '#028391', marginTop: '4px' }}>Phone: {r.phone}</div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: '11px', color: '#64748B', fontWeight: 700 }}>UN-DEPOSITED CASH</div>
+                    <div style={{ fontSize: '20px', fontWeight: 800, color: r.currentCashInHand > 0 ? '#B91C1C' : '#15803D' }}>
+                      ₹{r.currentCashInHand.toFixed(2)}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* CASH SETTLEMENT FORM */}
+            <div 
+              style={{ 
+                background: '#FFFFFF', 
+                border: '1.5px solid #E2E8F0', 
+                borderRadius: '18px', 
+                padding: '18px',
+                boxShadow: 'inset 1px 1px 3px rgba(0,0,0,0.03)'
+              }}
+            >
+              <h4 style={{ fontSize: '14px', fontWeight: 800, marginBottom: '12px', color: '#0B192C' }}>
+                Record End-of-Day Bank / Counter Cash Hand-In
+              </h4>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 180px', gap: '12px', alignItems: 'flex-end' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, marginBottom: '4px' }}>Deposit Amount (₹)</label>
+                  <input
+                    type="number"
+                    value={settleAmount}
+                    onChange={e => setSettleAmount(Number(e.target.value))}
+                    className="clay-input"
+                    style={{ width: '100%' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, marginBottom: '4px' }}>Bank / Branch Deposit Reference</label>
+                  <input
+                    type="text"
+                    value={settleRef}
+                    onChange={e => setSettleRef(e.target.value)}
+                    className="clay-input"
+                    style={{ width: '100%' }}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleSettleCash('rider-1')}
+                  className="clay-btn-teal"
+                  style={{ height: '46px', fontSize: '13px' }}
+                >
+                  Verify & Settle Cash
+                </button>
+              </div>
+
+              {settleMessage && (
+                <div style={{ marginTop: '12px', fontSize: '12px', color: '#15803D', fontWeight: 700 }}>
+                  ✓ {settleMessage}
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* AUDIT LOG IN CLAY CARD */}
           <div className="clay-card" style={{ padding: '24px' }}>
             <h3 style={{ fontSize: '18px', fontWeight: 800, marginBottom: '8px' }}>
@@ -1181,6 +1638,75 @@ export default function App() {
                   <div style={{ fontSize: '14px', fontWeight: 700 }}>dr_sharma_rx_gorakhpur.jpg</div>
                   <div style={{ fontSize: '11px', color: '#64748B' }}>Mock test file selected (Encrypted Vault Upload)</div>
                 </div>
+              </div>
+
+              {/* ASSISTIVE CLINICAL OCR SCANNER */}
+              <div style={{ marginBottom: '20px' }}>
+                <button
+                  type="button"
+                  onClick={handleRunOcr}
+                  disabled={ocrLoading}
+                  className="clay-btn-white"
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    fontSize: '13px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                    color: '#2563EB',
+                    border: '1.5px solid #BFDBFE'
+                  }}
+                >
+                  <ScanLine size={18} />
+                  {ocrLoading ? 'Scanning & Fuzzy-Matching Document...' : '🤖 Scan Prescription with Assistive OCR'}
+                </button>
+
+                {ocrResult && (
+                  <div 
+                    style={{ 
+                      marginTop: '14px', 
+                      background: '#F8FAFC', 
+                      borderRadius: '16px', 
+                      padding: '14px', 
+                      border: '1.5px solid #E2E8F0',
+                      boxShadow: 'inset 1px 1px 3px rgba(0,0,0,0.03)'
+                    }}
+                  >
+                    <div style={{ fontSize: '11px', fontWeight: 800, color: '#475569', textTransform: 'uppercase', marginBottom: '8px' }}>
+                      Candidate Drug Recognitions (Subject to Pharmacist Verification)
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {ocrResult.candidate_matches.map((cand, idx) => (
+                        <div 
+                          key={idx} 
+                          className="clay-ocr-chip" 
+                          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                        >
+                          <div>
+                            <div style={{ fontSize: '13px', fontWeight: 800, color: '#0B192C' }}>{cand.productName}</div>
+                            <div style={{ fontSize: '11px', color: '#16A34A', fontWeight: 700 }}>
+                              {Math.round(cand.confidence * 100)}% match confidence
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const found = products.find(p => p.id === cand.productId);
+                              if (found) addToCart(found);
+                            }}
+                            className="clay-btn-teal"
+                            style={{ padding: '6px 14px', fontSize: '11px' }}
+                          >
+                            + Add to Cart
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <button
@@ -1432,6 +1958,60 @@ export default function App() {
                       <span style={{ color: '#028391' }}>₹{cartTotal.toFixed(2)}</span>
                     </div>
                   </div>
+
+                  {/* PAYMENT METHOD SELECTION */}
+                  <div style={{ marginTop: '16px' }}>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 800, color: '#64748B', textTransform: 'uppercase', marginBottom: '8px' }}>
+                      Select Payment Mode
+                    </label>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                      <button
+                        type="button"
+                        onClick={() => setPaymentMode('COD')}
+                        style={{
+                          padding: '12px',
+                          borderRadius: '16px',
+                          border: paymentMode === 'COD' ? '2px solid #028391' : '1px solid #E2E8F0',
+                          background: paymentMode === 'COD' ? 'linear-gradient(135deg, #F0FDFA, #CCFBF1)' : '#FFF',
+                          color: paymentMode === 'COD' ? '#0F766E' : '#475569',
+                          fontWeight: 800,
+                          fontSize: '13px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '6px',
+                          boxShadow: paymentMode === 'COD' ? '0 4px 12px rgba(2, 131, 145, 0.15)' : 'none'
+                        }}
+                      >
+                        <Banknote size={16} />
+                        Cash on Delivery
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPaymentMode('ONLINE')}
+                        style={{
+                          padding: '12px',
+                          borderRadius: '16px',
+                          border: paymentMode === 'ONLINE' ? '2px solid #2563EB' : '1px solid #E2E8F0',
+                          background: paymentMode === 'ONLINE' ? 'linear-gradient(135deg, #EFF6FF, #DBEAFE)' : '#FFF',
+                          color: paymentMode === 'ONLINE' ? '#1D4ED8' : '#475569',
+                          fontWeight: 800,
+                          fontSize: '13px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '6px',
+                          boxShadow: paymentMode === 'ONLINE' ? '0 4px 12px rgba(37, 99, 235, 0.15)' : 'none'
+                        }}
+                      >
+                        <CreditCard size={16} />
+                        Online UPI / Card
+                      </button>
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#64748B', marginTop: '6px', textAlign: 'center' }}>
+                      {paymentMode === 'COD' ? '💵 Pay cash to rider at doorstep after verifying tamper seal' : '⚡ Instant digital confirmation via Razorpay sandbox'}
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -1447,7 +2027,9 @@ export default function App() {
                     fontSize: '16px'
                   }}
                 >
-                  Place Gorakhpur Pilot Order (₹{cartTotal.toFixed(2)})
+                  {paymentMode === 'COD' 
+                    ? `Place Gorakhpur COD Order (₹${cartTotal.toFixed(2)})` 
+                    : `Pay & Place Online Order (₹${cartTotal.toFixed(2)})`}
                 </button>
               </div>
             )}
@@ -1557,6 +2139,83 @@ export default function App() {
                 Send
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* =====================================================================
+          BLINKIT-STYLE PERSISTENT BOTTOM CART BAR (CLAY PILL)
+          ===================================================================== */}
+      {activeTab === 'customer' && cart.length > 0 && !showCartDrawer && (
+        <div 
+          className="clay-bottom-cart-bar" 
+          style={{ 
+            position: 'fixed', 
+            bottom: '22px', 
+            left: '50%', 
+            transform: 'translateX(-50%)', 
+            width: '92%', 
+            maxWidth: '680px', 
+            zIndex: 45 
+          }}
+        >
+          <div 
+            className="clay-card" 
+            style={{ 
+              background: 'linear-gradient(135deg, #028391, #015B65)', 
+              color: '#FFF', 
+              padding: '12px 20px', 
+              borderRadius: '22px', 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center', 
+              boxShadow: '0 14px 32px rgba(2, 131, 145, 0.4), inset 2px 2px 4px rgba(255,255,255,0.35)',
+              border: '1.5px solid rgba(255,255,255,0.3)'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+              <div 
+                style={{ 
+                  background: '#FFFFFF', 
+                  color: '#028391', 
+                  borderRadius: '50%', 
+                  width: '38px', 
+                  height: '38px', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center', 
+                  fontWeight: 800, 
+                  fontSize: '15px',
+                  boxShadow: '0 3px 8px rgba(0,0,0,0.2)'
+                }}
+              >
+                {cart.reduce((s, i) => s + i.quantity, 0)}
+              </div>
+              <div>
+                <div style={{ fontSize: '18px', fontWeight: 800, color: '#FFF' }}>
+                  ₹{cartTotal.toFixed(2)}
+                </div>
+                <div style={{ fontSize: '11px', color: '#CCFBF1', fontWeight: 600 }}>
+                  {cart.length} item{cart.length > 1 ? 's' : ''} • Gorakhpur Express 10-20 min
+                </div>
+              </div>
+            </div>
+
+            <button 
+              onClick={() => setShowCartDrawer(true)} 
+              className="clay-btn-white" 
+              style={{ 
+                padding: '9px 18px', 
+                fontSize: '13px', 
+                fontWeight: 800, 
+                color: '#028391', 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '6px' 
+              }}
+            >
+              View Cart <ChevronRight size={16} />
+            </button>
           </div>
         </div>
       )}

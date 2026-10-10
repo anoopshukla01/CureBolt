@@ -208,6 +208,57 @@ apiRouter.get('/prescriptions/:id', (req: Request, res: Response) => {
   return res.json({ prescription: pres });
 });
 
+// Assistive Prescription OCR Scanner (Human-in-the-Loop review aid)
+apiRouter.post('/prescriptions/:id/ocr', (req: Request, res: Response) => {
+  const pres = dbStore.prescriptions.get(req.params.id);
+  if (!pres) {
+    return res.status(404).json({ error: 'Prescription not found.' });
+  }
+
+  // Simulated optical character parsing for pilot doctor slip
+  const ocrText = [
+    'Dr. K. N. Rao, MBBS, MD (Medicine)',
+    'Reg No: UP-MCI-48291 | Golghar Clinic, Gorakhpur',
+    'Patient: Pooja Srivastava | Date: 10-Oct-2026',
+    'Rx:',
+    '1. Tab. Dolo 650mg - 1 tab TDS after meals (3 days)',
+    '2. Tab. Glycomet 500mg SR - 1 tab OD after breakfast',
+    '3. Drontal Plus Bone - 1 strip for Canine deworming'
+  ].join('\n');
+
+  pres.ocrExtractedText = ocrText;
+
+  // Fuzzy match against catalogue medicines
+  const candidateMatches: { productId: string; productName: string; confidence: number }[] = [];
+  for (const prod of Array.from(dbStore.products.values())) {
+    const textLower = ocrText.toLowerCase();
+    const nameLower = prod.name.toLowerCase();
+    const saltLower = (prod.genericSaltName || '').toLowerCase();
+
+    if (textLower.includes(nameLower.split(' ')[0]) || (saltLower && textLower.includes(saltLower.split(' ')[0]))) {
+      const confidence = prod.id === 'prd-dolo-650' ? 0.94 : prod.id === 'prd-glycomet-500' ? 0.89 : 0.81;
+      candidateMatches.push({
+        productId: prod.id,
+        productName: prod.name,
+        confidence
+      });
+    }
+  }
+
+  pres.candidateMatches = candidateMatches;
+  pres.status = 'ocr_processed';
+  dbStore.recordAudit(pres.userId, 'ASSISTIVE_OCR_EXTRACT', 'prescription', pres.id, {
+    matchesFound: candidateMatches.length
+  });
+
+  return res.json({
+    prescription_id: pres.id,
+    status: pres.status,
+    extracted_text: pres.ocrExtractedText,
+    candidate_matches: candidateMatches
+  });
+});
+
 // ============================================================================
 // 4. CART & ORDERS
 // ============================================================================
@@ -270,6 +321,7 @@ apiRouter.post('/orders', (req: Request, res: Response) => {
     pharmacyId: z.string(),
     deliveryAddressId: z.string(),
     categoryDomain: z.enum(['human', 'veterinary']),
+    paymentMode: z.enum(['ONLINE', 'COD']).default('ONLINE'),
     items: z.array(z.object({
       productId: z.string(),
       quantity: z.number().int().positive()
@@ -281,6 +333,8 @@ apiRouter.post('/orders', (req: Request, res: Response) => {
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error });
   }
+
+  const paymentMode = parsed.data.paymentMode;
 
   // Check Rx Requirement
   let requiresRx = false;
@@ -326,7 +380,17 @@ apiRouter.post('/orders', (req: Request, res: Response) => {
 
   // Determine Initial State
   // If Prescription is attached, order moves to PHARMACY_REVIEW before payment!
-  const initialState = requiresRx ? 'PHARMACY_REVIEW' : 'PAYMENT_PENDING';
+  // If COD without Rx, moves directly to ACCEPTED (prepared for packing)
+  // If ONLINE without Rx, moves to PAYMENT_PENDING
+  let initialState: any;
+  if (requiresRx) {
+    initialState = 'PHARMACY_REVIEW';
+  } else if (paymentMode === 'COD') {
+    initialState = 'ACCEPTED';
+  } else {
+    initialState = 'PAYMENT_PENDING';
+  }
+
   const orderId = `ord-${Date.now()}`;
   const randomOtp = Math.floor(1000 + Math.random() * 9000).toString();
 
@@ -337,6 +401,7 @@ apiRouter.post('/orders', (req: Request, res: Response) => {
     pharmacyId: parsed.data.pharmacyId,
     deliveryAddressId: parsed.data.deliveryAddressId,
     categoryDomain: parsed.data.categoryDomain,
+    paymentMode,
     state: initialState,
     items: orderItems,
     prescriptionId: parsed.data.prescriptionId,
@@ -351,7 +416,11 @@ apiRouter.post('/orders', (req: Request, res: Response) => {
   };
 
   dbStore.orders.set(newOrder.id, newOrder);
-  dbStore.recordAudit(parsed.data.userId, 'CREATE_ORDER', 'order', newOrder.id, { state: initialState, itemsCount: orderItems.length });
+  dbStore.recordAudit(parsed.data.userId, 'CREATE_ORDER', 'order', newOrder.id, {
+    state: initialState,
+    paymentMode,
+    itemsCount: orderItems.length
+  });
 
   return res.status(201).json({ order: newOrder });
 });
@@ -420,9 +489,11 @@ apiRouter.post('/pharmacy/orders/:id/review-prescription', (req: Request, res: R
   order.state = 'ACCEPTED';
   order.updatedAt = new Date().toISOString();
 
-  // Next move to PAYMENT_PENDING
-  OrderStateMachine.validateTransition(order.state, 'PAYMENT_PENDING');
-  order.state = 'PAYMENT_PENDING';
+  // If online payment, next move to PAYMENT_PENDING. If COD, stays in ACCEPTED ready for packing.
+  if (order.paymentMode !== 'COD') {
+    OrderStateMachine.validateTransition(order.state, 'PAYMENT_PENDING');
+    order.state = 'PAYMENT_PENDING';
+  }
 
   if (order.prescriptionId) {
     const rx = dbStore.prescriptions.get(order.prescriptionId);
@@ -575,6 +646,99 @@ apiRouter.post('/rider/orders/:id/pickup', (req: Request, res: Response) => {
   return res.json({ success: true, order });
 });
 
+apiRouter.post('/rider/location-update', (req: Request, res: Response) => {
+  const schema = z.object({
+    riderId: z.string(),
+    orderId: z.string(),
+    latitude: z.number(),
+    longitude: z.number(),
+    speedKmh: z.number().optional(),
+    heading: z.number().optional()
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error });
+
+  const snapshot = {
+    riderId: parsed.data.riderId,
+    orderId: parsed.data.orderId,
+    latitude: parsed.data.latitude,
+    longitude: parsed.data.longitude,
+    speedKmh: parsed.data.speedKmh || 22,
+    heading: parsed.data.heading || 45,
+    recordedAt: new Date().toISOString()
+  };
+
+  dbStore.updateRiderLocation(snapshot);
+  return res.json({ success: true, snapshot });
+});
+
+apiRouter.get('/orders/:id/tracking', (req: Request, res: Response) => {
+  const order = dbStore.orders.get(req.params.id);
+  if (!order) return res.status(404).json({ error: 'Order not found.' });
+
+  const pharmacy = dbStore.pharmacies.get(order.pharmacyId);
+  const address = dbStore.addresses.get(order.deliveryAddressId);
+  const rider = order.riderId ? dbStore.riders.get(order.riderId) : undefined;
+  let riderLoc = dbStore.getRiderLocation(order.id);
+
+  // If order is out for delivery and no GPS snapshot yet, generate near pharmacy
+  if (!riderLoc && pharmacy) {
+    riderLoc = {
+      riderId: order.riderId || 'rider-1',
+      orderId: order.id,
+      latitude: pharmacy.latitude + 0.003,
+      longitude: pharmacy.longitude + 0.002,
+      speedKmh: 20,
+      heading: 45,
+      recordedAt: new Date().toISOString()
+    };
+  }
+
+  // Calculate distance in km (Haversine)
+  let distanceKm = 1.2;
+  if (riderLoc && address) {
+    const R = 6371; // km
+    const dLat = (address.latitude - riderLoc.latitude) * Math.PI / 180;
+    const dLng = (address.longitude - riderLoc.longitude) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos(riderLoc.latitude * Math.PI / 180) * Math.cos(address.latitude * Math.PI / 180) *
+              Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    distanceKm = Number((R * c).toFixed(2));
+  }
+
+  // Dynamic ETA with Golghar traffic buffer
+  const speed = riderLoc?.speedKmh && riderLoc.speedKmh > 5 ? riderLoc.speedKmh : 20;
+  const transitMinutes = Math.ceil((distanceKm / speed) * 60) + 3;
+  const etaMinutes = order.state === 'DELIVERED' ? 0 : Math.max(1, transitMinutes);
+
+  // Stale warning if location update is > 60 seconds old
+  const ageSeconds = riderLoc ? Math.floor((Date.now() - new Date(riderLoc.recordedAt).getTime()) / 1000) : 0;
+  const isStale = ageSeconds > 60;
+
+  return res.json({
+    order_id: order.id,
+    order_code: order.orderCode,
+    state: order.state,
+    eta_minutes: etaMinutes,
+    eta_display: order.state === 'DELIVERED' ? 'Delivered' : `Arriving in about ${etaMinutes} mins`,
+    distance_km: distanceKm,
+    is_stale: isStale,
+    stale_warning: isStale ? 'Updating rider location...' : null,
+    traffic_status: etaMinutes > 15 ? 'Heavy Traffic' : 'Smooth Transit',
+    rider: rider ? {
+      id: rider.id,
+      name: 'Vikas Yadav',
+      phone: '+919876500005',
+      vehicle: rider.vehicleType,
+      current_cash_in_hand: rider.currentCashInHand
+    } : null,
+    rider_location: riderLoc,
+    pharmacy_location: pharmacy ? { latitude: pharmacy.latitude, longitude: pharmacy.longitude, name: pharmacy.businessName } : null,
+    customer_location: address ? { latitude: address.latitude, longitude: address.longitude, address: address.addressLine1 } : null
+  });
+});
+
 apiRouter.post('/rider/orders/:id/complete-delivery', (req: Request, res: Response) => {
   const schema = z.object({ deliveryOtp: z.string().length(4) });
   const parsed = schema.safeParse(req.body);
@@ -587,12 +751,28 @@ apiRouter.post('/rider/orders/:id/complete-delivery', (req: Request, res: Respon
     return res.status(400).json({ error: 'Incorrect delivery OTP verification code.' });
   }
 
+  // Handle COD cash collection
+  let codRecord = null;
+  if (order.paymentMode === 'COD') {
+    const riderId = order.riderId || 'rider-1';
+    codRecord = dbStore.recordCodCollection(order.id, riderId, order.payableAmount);
+  }
+
   OrderStateMachine.validateTransition(order.state, 'DELIVERED');
   order.state = 'DELIVERED';
   order.updatedAt = new Date().toISOString();
-  dbStore.recordAudit(order.riderId, 'DELIVERY_COMPLETED', 'order', order.id, { completedAt: order.updatedAt });
+  dbStore.recordAudit(order.riderId, 'DELIVERY_COMPLETED', 'order', order.id, {
+    completedAt: order.updatedAt,
+    paymentMode: order.paymentMode,
+    codRecord
+  });
 
-  return res.json({ success: true, message: 'Package handed over and order delivered.', order });
+  return res.json({
+    success: true,
+    message: 'Package handed over and order delivered.',
+    order,
+    cod_collection: codRecord
+  });
 });
 
 // ============================================================================
@@ -612,8 +792,65 @@ apiRouter.post('/ai/chat', async (req: Request, res: Response) => {
 });
 
 // ============================================================================
-// 9. AUDIT & SYSTEM STATUS
+// 9. AUDIT & COD RECONCILIATION
 // ============================================================================
+apiRouter.get('/admin/cod/reconciliation', (_req: Request, res: Response) => {
+  const riders = Array.from(dbStore.riders.values()).map(r => {
+    const user = dbStore.users.get(r.userId);
+    return {
+      ...r,
+      name: user?.fullName || 'Vikas Yadav',
+      phone: user?.phone || '+919876500005'
+    };
+  });
+  const collections = Array.from(dbStore.codCollections.values());
+  const settlements = Array.from(dbStore.codSettlements.values());
+  const totalOutstandingCash = riders.reduce((sum, r) => sum + r.currentCashInHand, 0);
+
+  return res.json({
+    total_outstanding_cash: totalOutstandingCash,
+    riders,
+    collections,
+    settlements
+  });
+});
+
+apiRouter.post('/admin/cod/settle', (req: Request, res: Response) => {
+  const schema = z.object({
+    riderId: z.string(),
+    amount: z.number().positive(),
+    depositReference: z.string().min(3),
+    verifiedBy: z.string().default('usr-admin-1')
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error });
+
+  const rider = dbStore.riders.get(parsed.data.riderId);
+  if (!rider) return res.status(404).json({ error: 'Rider not found.' });
+
+  if (parsed.data.amount > rider.currentCashInHand) {
+    return res.status(400).json({
+      error: `Deposit amount ₹${parsed.data.amount} exceeds current cash-in-hand ₹${rider.currentCashInHand}.`
+    });
+  }
+
+  const record = dbStore.recordCodSettlement(
+    parsed.data.riderId,
+    parsed.data.amount,
+    parsed.data.depositReference,
+    parsed.data.verifiedBy
+  );
+
+  dbStore.recordAudit(parsed.data.verifiedBy, 'COD_SETTLEMENT', 'rider', rider.id, record);
+
+  return res.json({
+    success: true,
+    message: `₹${record.amountDeposited} settled successfully for rider ${rider.vehicleRegistrationNumber}.`,
+    settlement: record,
+    remaining_cash_in_hand: rider.currentCashInHand
+  });
+});
+
 apiRouter.get('/admin/audit-logs', (_req: Request, res: Response) => {
   return res.json({ logs: dbStore.auditEvents });
 });

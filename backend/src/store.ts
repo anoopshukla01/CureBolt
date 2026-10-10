@@ -8,7 +8,11 @@ import {
   Prescription, 
   Order, 
   PaymentRecord, 
-  OrderState 
+  OrderState,
+  RiderProfile,
+  CodCollectionRecord,
+  CodSettlementRecord,
+  RiderLocationSnapshot
 } from './types';
 
 export class MedcureDataStore {
@@ -21,6 +25,10 @@ export class MedcureDataStore {
   public prescriptions: Map<string, Prescription> = new Map();
   public orders: Map<string, Order> = new Map();
   public payments: Map<string, PaymentRecord> = new Map();
+  public riders: Map<string, RiderProfile> = new Map();
+  public codCollections: Map<string, CodCollectionRecord> = new Map();
+  public codSettlements: Map<string, CodSettlementRecord> = new Map();
+  public riderLocations: Map<string, RiderLocationSnapshot> = new Map();
   public auditEvents: Array<{
     id: string;
     actorId?: string;
@@ -46,6 +54,18 @@ export class MedcureDataStore {
       { id: 'usr-cust-1', phone: '+919876500006', fullName: 'Pooja Srivastava', role: 'customer', isActive: true }
     ];
     seedUsers.forEach(u => this.users.set(u.id, u));
+
+    // Rider Profile
+    const rider: RiderProfile = {
+      id: 'rider-1',
+      userId: 'usr-rider-1',
+      vehicleType: 'Hero Splendor Plus (UP53-AB-1234)',
+      vehicleRegistrationNumber: 'UP53-AB-1234',
+      drivingLicenceNumber: 'UP5320210098765',
+      isAvailable: true,
+      currentCashInHand: 0
+    };
+    this.riders.set(rider.id, rider);
 
     // 2. Customer Address
     const addr: CustomerAddress = {
@@ -121,7 +141,9 @@ export class MedcureDataStore {
         strength: '650mg',
         packSize: '15 Tablets',
         manufacturer: 'Micro Labs Ltd',
+        mrp: 34.00,
         requiresPrescription: false,
+        isOtcDirect: true,
         scheduleType: 'OTC',
         imageUrl: '/products/dolo650.jpg',
         storageInstructions: 'Store below 30°C in dry place.'
@@ -137,7 +159,9 @@ export class MedcureDataStore {
         strength: '500mg',
         packSize: '20 Tablets',
         manufacturer: 'USV Private Limited',
+        mrp: 52.00,
         requiresPrescription: true,
+        isOtcDirect: false,
         scheduleType: 'Schedule H',
         imageUrl: '/products/glycomet500.jpg',
         storageInstructions: 'Store below 25°C. Protect from moisture.'
@@ -153,7 +177,9 @@ export class MedcureDataStore {
         strength: 'High Bioavailable Calcium',
         packSize: '1 Litre Bottle',
         manufacturer: 'The Himalaya Drug Company',
+        mrp: 240.00,
         requiresPrescription: false,
+        isOtcDirect: true,
         scheduleType: 'OTC',
         imageUrl: '/products/himcal.jpg',
         speciesRestrictions: [
@@ -172,7 +198,9 @@ export class MedcureDataStore {
         strength: 'For 10kg Bodyweight',
         packSize: '1 Tablet Strip',
         manufacturer: 'Elanco Animal Health',
+        mrp: 130.00,
         requiresPrescription: false,
+        isOtcDirect: true,
         scheduleType: 'OTC',
         imageUrl: '/products/drontal.jpg',
         speciesRestrictions: [
@@ -190,7 +218,9 @@ export class MedcureDataStore {
         strength: '4.5g',
         packSize: '1 Glass Vial + Diluent',
         manufacturer: 'Intas Pharmaceuticals Ltd',
+        mrp: 485.00,
         requiresPrescription: true,
+        isOtcDirect: false,
         scheduleType: 'Schedule H',
         imageUrl: '/products/intacef.jpg',
         speciesRestrictions: [
@@ -200,7 +230,7 @@ export class MedcureDataStore {
     ];
     prods.forEach(p => this.products.set(p.id, p));
 
-    // 6. Inventory Mapping
+    // 6. Inventory Mapping (Selling price strictly <= MRP)
     const invItems: PharmacyInventoryItem[] = [
       {
         id: 'inv-1',
@@ -210,6 +240,7 @@ export class MedcureDataStore {
         reservedQuantity: 0,
         mrp: 34.00,
         sellingPrice: 30.50,
+        isAvailableOverride: false,
         batches: [{ batchNumber: 'DL-24A91', mfgDate: '2024-03-01', expiryDate: '2027-02-28', quantity: 150 }]
       },
       {
@@ -220,6 +251,7 @@ export class MedcureDataStore {
         reservedQuantity: 0,
         mrp: 52.00,
         sellingPrice: 46.80,
+        isAvailableOverride: false,
         batches: [{ batchNumber: 'GLY-8490', mfgDate: '2024-06-15', expiryDate: '2026-11-30', quantity: 80 }]
       },
       {
@@ -230,6 +262,7 @@ export class MedcureDataStore {
         reservedQuantity: 0,
         mrp: 240.00,
         sellingPrice: 216.00,
+        isAvailableOverride: false,
         batches: [{ batchNumber: 'HC-202409', mfgDate: '2024-09-01', expiryDate: '2026-08-31', quantity: 30 }]
       },
       {
@@ -240,6 +273,7 @@ export class MedcureDataStore {
         reservedQuantity: 0,
         mrp: 130.00,
         sellingPrice: 120.00,
+        isAvailableOverride: false,
         batches: [{ batchNumber: 'DR-1934', mfgDate: '2024-04-01', expiryDate: '2027-03-31', quantity: 60 }]
       },
       {
@@ -250,6 +284,7 @@ export class MedcureDataStore {
         reservedQuantity: 0,
         mrp: 485.00,
         sellingPrice: 436.50,
+        isAvailableOverride: false,
         batches: [{ batchNumber: 'INT-9921', mfgDate: '2024-08-01', expiryDate: '2026-07-31', quantity: 25 }]
       }
     ];
@@ -289,6 +324,52 @@ export class MedcureDataStore {
         inv.reservedQuantity = Math.max(0, inv.reservedQuantity - item.quantity);
       }
     }
+  }
+
+  // Rider Location Tracking
+  public updateRiderLocation(snapshot: RiderLocationSnapshot): void {
+    this.riderLocations.set(snapshot.orderId, snapshot);
+  }
+
+  public getRiderLocation(orderId: string): RiderLocationSnapshot | undefined {
+    return this.riderLocations.get(orderId);
+  }
+
+  // COD Cash Management
+  public recordCodCollection(orderId: string, riderId: string, amount: number): CodCollectionRecord {
+    const record: CodCollectionRecord = {
+      id: `cod-col-${Date.now()}`,
+      orderId,
+      riderId,
+      amountCollected: amount,
+      receiptNumber: `COD-GKP-${Math.floor(100000 + Math.random() * 900000)}`,
+      collectedAt: new Date().toISOString()
+    };
+    this.codCollections.set(record.id, record);
+
+    const rider = this.riders.get(riderId);
+    if (rider) {
+      rider.currentCashInHand += amount;
+    }
+    return record;
+  }
+
+  public recordCodSettlement(riderId: string, amount: number, depositReference: string, verifiedBy: string): CodSettlementRecord {
+    const record: CodSettlementRecord = {
+      id: `cod-set-${Date.now()}`,
+      riderId,
+      amountDeposited: amount,
+      depositReference,
+      verifiedBy,
+      settledAt: new Date().toISOString()
+    };
+    this.codSettlements.set(record.id, record);
+
+    const rider = this.riders.get(riderId);
+    if (rider) {
+      rider.currentCashInHand = Math.max(0, rider.currentCashInHand - amount);
+    }
+    return record;
   }
 
   public recordAudit(actorId: string | undefined, action: string, resourceType: string, resourceId: string, details: any) {

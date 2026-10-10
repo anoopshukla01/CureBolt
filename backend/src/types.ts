@@ -9,11 +9,16 @@ export type UserRole =
 
 export type HealthcareDomain = 'human' | 'veterinary';
 
+export type PaymentMode = 'ONLINE' | 'COD';
+
+export type StockBadge = 'in_stock' | 'low_stock' | 'out_of_stock';
+
 export type OrderState = 
   | 'CREATED'
   | 'PAYMENT_PENDING'
   | 'PAYMENT_CONFIRMED'
   | 'PHARMACY_REVIEW'
+  | 'PRESCRIPTION_CLARIFICATION'
   | 'ACCEPTED'
   | 'REJECTED'
   | 'PACKING'
@@ -29,6 +34,7 @@ export type OrderState =
 
 export type PrescriptionStatus = 
   | 'uploaded'
+  | 'ocr_processed'
   | 'under_review'
   | 'clarification_requested'
   | 'approved'
@@ -70,6 +76,16 @@ export interface AnimalProfile {
   allergies?: string;
 }
 
+export interface RiderProfile {
+  id: string;
+  userId: string;
+  vehicleType: string;
+  vehicleRegistrationNumber: string;
+  drivingLicenceNumber: string;
+  isAvailable: boolean;
+  currentCashInHand: number;
+}
+
 export interface Pharmacy {
   id: string;
   businessName: string;
@@ -98,7 +114,9 @@ export interface Product {
   strength?: string;
   packSize: string;
   manufacturer: string;
+  mrp: number;
   requiresPrescription: boolean;
+  isOtcDirect: boolean; // Allow-list flag for direct ordering
   scheduleType: 'OTC' | 'Schedule H' | 'Schedule H1' | 'Schedule X';
   imageUrl: string;
   storageInstructions?: string;
@@ -117,6 +135,7 @@ export interface PharmacyInventoryItem {
   reservedQuantity: number;
   mrp: number;
   sellingPrice: number;
+  isAvailableOverride: boolean;
   batches: {
     batchNumber: string;
     mfgDate: string;
@@ -135,6 +154,12 @@ export interface Prescription {
   reviewedBy?: string;
   pharmacistRegNumber?: string;
   rejectionReason?: string;
+  ocrExtractedText?: string;
+  candidateMatches?: {
+    productId: string;
+    productName: string;
+    confidence: number;
+  }[];
   createdAt: string;
 }
 
@@ -154,6 +179,7 @@ export interface Order {
   pharmacyId: string;
   deliveryAddressId: string;
   categoryDomain: HealthcareDomain;
+  paymentMode: PaymentMode;
   state: OrderState;
   items: OrderItem[];
   prescriptionId?: string;
@@ -167,6 +193,34 @@ export interface Order {
   riderId?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface CodCollectionRecord {
+  id: string;
+  orderId: string;
+  riderId: string;
+  amountCollected: number;
+  receiptNumber: string;
+  collectedAt: string;
+}
+
+export interface CodSettlementRecord {
+  id: string;
+  riderId: string;
+  amountDeposited: number;
+  depositReference: string;
+  verifiedBy: string;
+  settledAt: string;
+}
+
+export interface RiderLocationSnapshot {
+  riderId: string;
+  orderId: string;
+  latitude: number;
+  longitude: number;
+  heading?: number;
+  speedKmh?: number;
+  recordedAt: string;
 }
 
 export interface PaymentRecord {
