@@ -14,6 +14,7 @@ export interface Product {
   schedule_type: string;
   selling_price: number;
   mrp: number;
+  discount_percent?: number;
   available_quantity: number;
   in_stock: boolean;
   species_restrictions?: {

@@ -107,7 +107,7 @@ apiRouter.get('/serviceability/check', (req: Request, res: Response) => {
   });
 });
 
-apiRouter.get('/catalogue/products', (req: Request, res: Response) => {
+apiRouter.get(['/catalogue/products', '/products'], (req: Request, res: Response) => {
   const domain = req.query.domain as string; // 'human' or 'veterinary'
   const query = (req.query.query as string || '').toLowerCase();
   const categoryId = req.query.categoryId as string;
@@ -145,7 +145,7 @@ apiRouter.get('/catalogue/products', (req: Request, res: Response) => {
   return res.json({ items: enriched, total: enriched.length });
 });
 
-apiRouter.get('/catalogue/products/:id', (req: Request, res: Response) => {
+apiRouter.get(['/catalogue/products/:id', '/products/:id'], (req: Request, res: Response) => {
   const product = dbStore.products.get(req.params.id);
   if (!product) {
     return res.status(404).json({ error: 'Product not found.' });
