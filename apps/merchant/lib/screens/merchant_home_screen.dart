@@ -7,6 +7,7 @@ import 'login_screen.dart';
 import 'onboarding_screen.dart';
 import 'onboarding_status_screen.dart';
 import 'active_sessions_screen.dart';
+import 'counter_order_queue_screen.dart';
 
 class MerchantHomeScreen extends StatefulWidget {
   final PharmacyAuthService authService;
@@ -259,6 +260,17 @@ class _MerchantHomeScreenState extends State<MerchantHomeScreen> {
               subtitle: 'Multi-layer looping sound alarms, accept/reject SLA timer, partial availability',
               icon: Icons.notifications_active_outlined,
               isPermitted: true,
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => CounterOrderQueueScreen(
+                      pharmacyName: user?.pharmacyName ?? 'Apollo Pharmacy — Golghar Hub',
+                      pharmacistName: user?.name ?? 'Dr. V. K. Singh (Pharmacist)',
+                      pharmacistRegNo: user?.registrationNumber ?? 'UP-PC-88129',
+                    ),
+                  ),
+                );
+              },
             ),
             const SizedBox(height: 8),
 
@@ -269,6 +281,17 @@ class _MerchantHomeScreenState extends State<MerchantHomeScreen> {
               icon: Icons.document_scanner_outlined,
               isPermitted: PharmacyPermissions.canReviewPrescription(user),
               restrictedMessage: 'Restricted: Dispensing law requires Registered Pharmacist credentials',
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => CounterOrderQueueScreen(
+                      pharmacyName: user?.pharmacyName ?? 'Apollo Pharmacy — Golghar Hub',
+                      pharmacistName: user?.name ?? 'Dr. V. K. Singh (Pharmacist)',
+                      pharmacistRegNo: user?.registrationNumber ?? 'UP-PC-88129',
+                    ),
+                  ),
+                );
+              },
             ),
             const SizedBox(height: 8),
 
@@ -278,6 +301,17 @@ class _MerchantHomeScreenState extends State<MerchantHomeScreen> {
               subtitle: 'Barcode confirmation, batch assignment, thermal invoice printing & rider OTP',
               icon: Icons.qr_code_scanner_outlined,
               isPermitted: user?.capabilities.canPickAndPack == true,
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => CounterOrderQueueScreen(
+                      pharmacyName: user?.pharmacyName ?? 'Apollo Pharmacy — Golghar Hub',
+                      pharmacistName: user?.name ?? 'Dr. V. K. Singh (Pharmacist)',
+                      pharmacistRegNo: user?.registrationNumber ?? 'UP-PC-88129',
+                    ),
+                  ),
+                );
+              },
             ),
             const SizedBox(height: 8),
 
@@ -302,6 +336,7 @@ class _MerchantHomeScreenState extends State<MerchantHomeScreen> {
     required IconData icon,
     required bool isPermitted,
     String? restrictedMessage,
+    VoidCallback? onTap,
   }) {
     return Card(
       elevation: 0,
@@ -310,12 +345,15 @@ class _MerchantHomeScreenState extends State<MerchantHomeScreen> {
         side: BorderSide(color: isPermitted ? PharmacyColors.cardBorder : Colors.grey.shade200),
       ),
       color: isPermitted ? Colors.white : const Color(0xFFF8FAFC),
-      child: Padding(
-        padding: const EdgeInsets.all(14.0),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
+      child: InkWell(
+        onTap: isPermitted ? onTap : null,
+        borderRadius: BorderRadius.circular(10),
+        child: Padding(
+          padding: const EdgeInsets.all(14.0),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
                 color: isPermitted ? PharmacyColors.primaryLight : Colors.grey.shade200,
                 borderRadius: BorderRadius.circular(8),

@@ -14,12 +14,13 @@ import { OcrModal } from './components/OcrModal';
 import { LiveTelemetryModal } from './components/LiveTelemetryModal';
 import { PharmacyPortal } from './components/PharmacyPortal';
 import { AdminPortal } from './components/AdminPortal';
+import { RiderPortal } from './components/RiderPortal';
 
 const API_BASE = 'http://localhost:4000/api/v1';
 
 export default function App() {
   // Navigation & Role State
-  const [activeRole, setActiveRole] = useState<'customer' | 'pharmacy' | 'admin'>('customer');
+  const [activeRole, setActiveRole] = useState<'customer' | 'pharmacy' | 'rider' | 'admin'>('customer');
   const [selectedDomain, setSelectedDomain] = useState<HealthcareDomain>('human');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategoryChip, setActiveCategoryChip] = useState('All');
@@ -591,6 +592,11 @@ export default function App() {
             onMedicineListed={handleMedicineListed}
             onPreviewOnStore={handlePreviewOnStore}
           />
+        </main>
+      ) : activeRole === 'rider' ? (
+        /* DELIVERY PARTNER RIDER PORTAL */
+        <main className="flex-1">
+          <RiderPortal />
         </main>
       ) : (
         /* PLATFORM ADMIN, DISPATCHER & SUPPORT OPERATOR DASHBOARD */

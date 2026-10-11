@@ -11,8 +11,8 @@ interface HeaderProps {
   cartTotal: number;
   onOpenCart: () => void;
   onOpenOcr: () => void;
-  activeRole: 'customer' | 'pharmacy' | 'admin';
-  onRoleChange: (role: 'customer' | 'pharmacy' | 'admin') => void;
+  activeRole: 'customer' | 'pharmacy' | 'rider' | 'admin';
+  onRoleChange: (role: 'customer' | 'pharmacy' | 'rider' | 'admin') => void;
   onLogoClick: () => void;
 }
 
@@ -169,6 +169,14 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <span>Pharmacy Portal</span>
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-pulse hidden sm:inline-block" />
+            </button>
+            <button
+              onClick={() => onRoleChange('rider')}
+              className={`px-3 py-1.5 rounded-lg transition-all ${
+                activeRole === 'rider' ? 'bg-orange-600 text-white shadow-md font-black' : 'text-orange-400 hover:text-orange-300'
+              }`}
+            >
+              Rider
             </button>
             <button
               onClick={() => onRoleChange('admin')}
