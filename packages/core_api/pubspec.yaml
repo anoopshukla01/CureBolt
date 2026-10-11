@@ -1,0 +1,12 @@
+name: core_api
+description: HTTP client, base URL discovery and JWT interceptors for Medcure apps.
+version: 1.0.0
+publish_to: 'none'
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.2.2

@@ -1,0 +1,14 @@
+name: core_auth
+description: Shared pharmacy role-based authentication, TOTP MFA, sessions and RBAC rules.
+version: 1.0.0
+publish_to: 'none'
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.2.0
+  core_models:
+    path: ../core_models

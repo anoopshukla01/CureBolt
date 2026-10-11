@@ -41,3 +41,7 @@ Thumbs.db
 build/
 .flutter-plugins
 .flutter-plugins-dependencies
+
+# Mobile binaries
+*.apk
+*.aab

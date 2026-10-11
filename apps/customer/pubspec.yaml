@@ -1,0 +1,42 @@
+name: medcure_customer
+description: Medcure Quick-Commerce Customer App (Human & Animal Healthcare).
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.6
+  http: ^1.2.2
+  shared_preferences: ^2.3.2
+
+  # Shared Monorepo Core Packages
+  core_ui:
+    path: ../../packages/core_ui
+  core_auth:
+    path: ../../packages/core_auth
+  core_api:
+    path: ../../packages/core_api
+  core_realtime:
+    path: ../../packages/core_realtime
+  core_notifications:
+    path: ../../packages/core_notifications
+  core_l10n:
+    path: ../../packages/core_l10n
+  core_config:
+    path: ../../packages/core_config
+  core_models:
+    path: ../../packages/core_models
+  core_maps:
+    path: ../../packages/core_maps
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true

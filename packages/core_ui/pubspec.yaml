@@ -1,0 +1,15 @@
+name: core_ui
+description: Shared UI design tokens, responsive layouts and pharmacy counter widgets for Medcure.
+version: 1.0.0
+publish_to: 'none'
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  assets:
+    - assets/launch/

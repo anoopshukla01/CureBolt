@@ -1,0 +1,11 @@
+{
+  "name": "medcure-admin-web",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Medcure Admin, Dispatcher and Support Operations Web Portal",
+  "scripts": {
+    "dev": "npm --prefix ../../web run dev",
+    "build": "npm --prefix ../../web run build",
+    "preview": "npm --prefix ../../web run preview"
+  }
+}

@@ -1,0 +1,12 @@
+name: core_l10n
+description: English and Hindi localized terminology for pharmacy counter operations.
+version: 1.0.0
+publish_to: 'none'
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  intl: ^0.19.0

@@ -1,0 +1,355 @@
+openapi: 3.0.3
+info:
+  title: Medcure Quick-Commerce Medicine Platform API
+  description: >
+    Unified REST and Realtime API contract for the Medcure three-app monorepo:
+    Customer (com.medcure.customer), Delivery Partner (com.medcure.rider), 
+    and Shopkeeper Counter (com.medcure.shop) applications serving Gorakhpur, Uttar Pradesh.
+  version: 1.0.0
+servers:
+  - url: http://localhost:3000/api/v1
+    description: Local Development Server
+  - url: https://staging-api.medcure.in/api/v1
+    description: Staging Environment
+  - url: https://api.medcure.in/api/v1
+    description: Production Environment
+
+paths:
+  /config/app:
+    get:
+      summary: Get remote application configuration and check force update
+      operationId: getAppConfig
+      parameters:
+        - name: appId
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [com.medcure.customer, com.medcure.rider, com.medcure.shop]
+        - name: version
+          in: query
+          required: true
+          schema:
+            type: string
+            example: "1.0.0"
+      responses:
+        '200':
+          description: Remote app config retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppConfigResponse'
+        '404':
+          description: App configuration not found
+
+  /auth/request-otp:
+    post:
+      summary: Request 6-digit phone OTP
+      operationId: requestOtp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone]
+              properties:
+                phone:
+                  type: string
+                  example: "+919876500006"
+      responses:
+        '200':
+          description: OTP dispatched
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OtpRequestResponse'
+        '400':
+          description: Invalid phone number
+
+  /auth/verify-otp:
+    post:
+      summary: Verify phone OTP and obtain JWT authentication token
+      operationId: verifyOtp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone, otp]
+              properties:
+                phone:
+                  type: string
+                  example: "+919876500006"
+                otp:
+                  type: string
+                  example: "123456"
+      responses:
+        '200':
+          description: OTP verified successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OtpVerifyResponse'
+        '401':
+          description: Invalid OTP or expired
+        '429':
+          description: Rate limit exceeded or account locked
+
+  /auth/app-session:
+    post:
+      summary: Validate active session against app-specific role gate
+      operationId: verifyAppSession
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [appId]
+              properties:
+                appId:
+                  type: string
+                  enum: [com.medcure.customer, com.medcure.rider, com.medcure.shop]
+                appVersion:
+                  type: string
+                  example: "1.0.0"
+                platform:
+                  type: string
+                  enum: [android, ios, web]
+                  default: android
+      responses:
+        '200':
+          description: App session valid and role authorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppSessionResponse'
+        '401':
+          description: Missing or invalid authentication token
+        '403':
+          description: Account role not permitted in this app surface ("This account can't use this app")
+
+  /catalogue/products:
+    get:
+      summary: Retrieve medicine catalogue with human and veterinary separation
+      operationId: listProducts
+      parameters:
+        - name: domain
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [human, veterinary]
+        - name: query
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of medicines and healthcare products
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Product'
+                  total:
+                    type: integer
+
+  /rider/location:
+    post:
+      summary: Ingest live rider GPS telemetry
+      operationId: updateRiderLocation
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [latitude, longitude]
+              properties:
+                latitude:
+                  type: number
+                  example: 26.7606
+                longitude:
+                  type: number
+                  example: 83.3732
+                speed:
+                  type: number
+                  example: 22.5
+                heading:
+                  type: number
+                  example: 90.0
+                batteryLevel:
+                  type: integer
+                  example: 85
+      responses:
+        '200':
+          description: Location updated successfully
+        '403':
+          description: Rider role required
+
+  /pharmacy/orders:
+    get:
+      summary: Retrieve incoming prescription orders for pharmacy counter
+      operationId: listPharmacyOrders
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of pharmacy counter orders
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  orders:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Order'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    AppConfigResponse:
+      type: object
+      required: [appId, appName, minSupportedVersion, latestVersion, updateRequired]
+      properties:
+        appId:
+          type: string
+        appName:
+          type: string
+        minSupportedVersion:
+          type: string
+        latestVersion:
+          type: string
+        updateRequired:
+          type: boolean
+        forceUpdateTitle:
+          type: string
+        forceUpdateMessage:
+          type: string
+        storeUrl:
+          type: string
+
+    OtpRequestResponse:
+      type: object
+      required: [success, session_id, expires_in, cooldown_seconds]
+      properties:
+        success:
+          type: boolean
+        session_id:
+          type: string
+        expires_in:
+          type: integer
+        cooldown_seconds:
+          type: integer
+        message:
+          type: string
+
+    OtpVerifyResponse:
+      type: object
+      required: [token, user]
+      properties:
+        token:
+          type: string
+        is_new_user:
+          type: boolean
+        user:
+          type: object
+          properties:
+            id:
+              type: string
+            phone:
+              type: string
+            role:
+              type: string
+
+    AppSessionResponse:
+      type: object
+      required: [sessionValid, appId, user]
+      properties:
+        sessionValid:
+          type: boolean
+        appId:
+          type: string
+        appVersion:
+          type: string
+        allowedScopes:
+          type: array
+          items:
+            type: string
+        user:
+          type: object
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+            role:
+              type: string
+            phone:
+              type: string
+
+    Product:
+      type: object
+      required: [id, name, brand, categoryDomain, mrp, sellingPrice]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        brand:
+          type: string
+        categoryDomain:
+          type: string
+          enum: [human, veterinary]
+        mrp:
+          type: number
+          description: Maximum Retail Price in INR
+        sellingPrice:
+          type: number
+          description: Must be <= mrp (statutory requirement)
+        packSize:
+          type: string
+        requiresPrescription:
+          type: boolean
+
+    Order:
+      type: object
+      required: [id, orderNumber, state, customerId, totalAmount]
+      properties:
+        id:
+          type: string
+        orderNumber:
+          type: string
+        state:
+          type: string
+          example: "ACCEPTED_BY_PHARMACY"
+        customerId:
+          type: string
+        totalAmount:
+          type: number
+        deliveryAddress:
+          type: string

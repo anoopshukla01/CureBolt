@@ -27,7 +27,9 @@ export const PharmacyPortal: React.FC<PharmacyPortalProps> = ({
   onMedicineListed,
   onPreviewOnStore
 }) => {
-  const [activeTab, setActiveTab] = useState<'inventory' | 'add_single' | 'bulk_import'>('inventory');
+  const [activeTab, setActiveTab] = useState<'inventory' | 'add_single' | 'bulk_import' | 'onboarding'>('inventory');
+  const [currentRole, setCurrentRole] = useState<'pharmacy_owner' | 'pharmacist' | 'pharmacy_staff'>('pharmacy_owner');
+  const [onboardingData, setOnboardingData] = useState<any>(null);
   const [inventoryList, setInventoryList] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -74,8 +76,21 @@ export const PharmacyPortal: React.FC<PharmacyPortalProps> = ({
     }
   };
 
+  const fetchOnboarding = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/pharmacy/onboarding/application?pharmacyId=pharm-gkp-1`);
+      const data = await res.json();
+      if (data.application) {
+        setOnboardingData(data);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   useEffect(() => {
     fetchInventory();
+    fetchOnboarding();
   }, []);
 
   // Handle Single Medicine Form Submit
@@ -377,43 +392,76 @@ export const PharmacyPortal: React.FC<PharmacyPortalProps> = ({
             </div>
           </div>
 
-          {/* Quick Action Navigation */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <button
-              onClick={() => setActiveTab('inventory')}
-              className={`px-4 py-2.5 rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all ${
-                activeTab === 'inventory' 
-                  ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-950/50' 
-                  : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
-              }`}
-            >
-              <Package className="w-4 h-4" />
-              <span>Listed Catalogue ({inventoryList.length})</span>
-            </button>
+          {/* Quick Action Navigation & Role Switcher */}
+          <div className="flex items-center gap-2 flex-wrap justify-between w-full mt-2 pt-4 border-t border-zinc-800">
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={() => setActiveTab('inventory')}
+                className={`px-4 py-2.5 rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all ${
+                  activeTab === 'inventory' 
+                    ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-950/50' 
+                    : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                }`}
+              >
+                <Package className="w-4 h-4" />
+                <span>Listed Catalogue ({inventoryList.length})</span>
+              </button>
 
-            <button
-              onClick={() => setActiveTab('add_single')}
-              className={`px-4 py-2.5 rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all ${
-                activeTab === 'add_single' 
-                  ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-950/50' 
-                  : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
-              }`}
-            >
-              <Plus className="w-4 h-4" />
-              <span>List New Medicine</span>
-            </button>
+              <button
+                onClick={() => setActiveTab('add_single')}
+                className={`px-4 py-2.5 rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all ${
+                  activeTab === 'add_single' 
+                    ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-950/50' 
+                    : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                }`}
+              >
+                <Plus className="w-4 h-4" />
+                <span>List New Medicine</span>
+              </button>
 
-            <button
-              onClick={() => setActiveTab('bulk_import')}
-              className={`px-4 py-2.5 rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all ${
-                activeTab === 'bulk_import' 
-                  ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-950/50' 
-                  : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
-              }`}
-            >
-              <Upload className="w-4 h-4" />
-              <span>Import Medicines Batch</span>
-            </button>
+              <button
+                onClick={() => setActiveTab('bulk_import')}
+                className={`px-4 py-2.5 rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all ${
+                  activeTab === 'bulk_import' 
+                    ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-950/50' 
+                    : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                }`}
+              >
+                <Upload className="w-4 h-4" />
+                <span>Import Medicines Batch</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('onboarding')}
+                className={`px-4 py-2.5 rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all ${
+                  activeTab === 'onboarding' 
+                    ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-950/50' 
+                    : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                }`}
+              >
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                <span>Licences & Verification</span>
+                {onboardingData?.licenceStatus?.daysUntilExpiry && (
+                  <span className="bg-emerald-500/20 text-emerald-300 text-[10px] px-1.5 py-0.5 rounded-full font-mono">
+                    {onboardingData.licenceStatus.daysUntilExpiry}d valid
+                  </span>
+                )}
+              </button>
+            </div>
+
+            {/* Acting Role Switcher */}
+            <div className="flex items-center gap-2 bg-zinc-800/80 px-3 py-1.5 rounded-xl border border-zinc-700/60">
+              <span className="text-[11px] font-bold text-zinc-400">Current Role:</span>
+              <select
+                value={currentRole}
+                onChange={(e) => setCurrentRole(e.target.value as any)}
+                className="bg-zinc-900 text-xs font-bold text-emerald-400 rounded-lg px-2.5 py-1 border border-zinc-700 focus:outline-none cursor-pointer"
+              >
+                <option value="pharmacy_owner">👑 Owner (Rajesh Gupta)</option>
+                <option value="pharmacist">🩺 Pharmacist (Sunil Sharma)</option>
+                <option value="pharmacy_staff">📦 Staff (Amit Mishra)</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -950,6 +998,196 @@ export const PharmacyPortal: React.FC<PharmacyPortalProps> = ({
                 Upload & Process File
               </button>
             </div>
+          </div>
+
+        </div>
+      )}
+
+      {/* 4. ONBOARDING, LICENCES & VERIFICATION TAB (Milestone P1) */}
+      {activeTab === 'onboarding' && (
+        <div className="space-y-6 animate-in fade-in duration-300">
+          
+          {/* Status & Reviewer Summary Banner */}
+          <div className="bg-gradient-to-r from-emerald-950/60 to-zinc-900 border border-emerald-500/40 p-6 rounded-2xl shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="flex items-start gap-4">
+              <div className="p-3 bg-emerald-500/20 text-emerald-400 rounded-2xl border border-emerald-500/30">
+                <ShieldCheck className="w-8 h-8" />
+              </div>
+              <div>
+                <div className="flex items-center gap-3">
+                  <h3 className="text-lg font-black text-white">Partner Pharmacy Onboarding & Verification</h3>
+                  <span className="bg-emerald-500/20 text-emerald-400 text-xs font-black uppercase tracking-wider px-3 py-1 rounded-full border border-emerald-500/30">
+                    Status: Verified & Operational
+                  </span>
+                </div>
+                <p className="text-xs text-zinc-300 mt-1">
+                  Verified with Food Safety and Drug Administration UP records • Reviewed by Dr. Alok Verma (Platform Admin)
+                </p>
+                <div className="flex items-center gap-4 mt-3 text-xs text-zinc-400 font-mono">
+                  <span>GSTIN: 09AAACG1234F1Z5</span>
+                  <span>•</span>
+                  <span>Delivery Zone: Gorakhpur Core Urban Cluster (6 km Radius)</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-zinc-900/90 border border-zinc-700/80 p-3.5 rounded-xl text-right">
+              <span className="text-[11px] text-zinc-400 block font-bold uppercase tracking-wider">Drug Licence Expiry</span>
+              <span className="text-sm font-black text-emerald-400">31 Dec 2027</span>
+              <span className="text-[10px] text-zinc-400 block font-mono">628 days remaining (Active)</span>
+            </div>
+          </div>
+
+          {/* Grid of Verified Credentials & Vault */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+            {/* Drug Licences */}
+            <div className="bg-zinc-900/90 border border-zinc-800 p-6 rounded-2xl shadow-lg">
+              <div className="flex items-center justify-between mb-4 pb-3 border-b border-zinc-800">
+                <h4 className="text-sm font-black text-white flex items-center gap-2">
+                  <Building2 className="w-4 h-4 text-emerald-400" />
+                  <span>Statutory Drug Sale Licences</span>
+                </h4>
+                <span className="text-[11px] bg-emerald-500/10 text-emerald-400 font-bold px-2 py-0.5 rounded">
+                  Drugs & Cosmetics Act 1940
+                </span>
+              </div>
+
+              <div className="space-y-3 text-xs">
+                <div className="flex justify-between p-3 bg-zinc-800/40 rounded-xl border border-zinc-800">
+                  <span className="text-zinc-400">Form 20 Licence (Retail Allopathic Drugs):</span>
+                  <span className="font-mono font-bold text-white">UP-GKP-20-847291</span>
+                </div>
+                <div className="flex justify-between p-3 bg-zinc-800/40 rounded-xl border border-zinc-800">
+                  <span className="text-zinc-400">Form 21 Licence (Specified Schedule C/C1):</span>
+                  <span className="font-mono font-bold text-white">UP-GKP-21-847292</span>
+                </div>
+                <div className="flex justify-between p-3 bg-zinc-800/40 rounded-xl border border-zinc-800">
+                  <span className="text-zinc-400">Licensing Authority:</span>
+                  <span className="font-semibold text-zinc-300">Food Safety & Drug Administration, Gorakhpur</span>
+                </div>
+                <div className="flex justify-between p-3 bg-zinc-800/40 rounded-xl border border-zinc-800">
+                  <span className="text-zinc-400">Authorised Representative:</span>
+                  <span className="font-semibold text-zinc-300">Rajesh Gupta (+91 98765 00002)</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Qualified Dispensing Pharmacist */}
+            <div className="bg-zinc-900/90 border border-zinc-800 p-6 rounded-2xl shadow-lg">
+              <div className="flex items-center justify-between mb-4 pb-3 border-b border-zinc-800">
+                <h4 className="text-sm font-black text-white flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                  <span>Qualified Registered Pharmacist</span>
+                </h4>
+                <span className="text-[11px] bg-emerald-500/10 text-emerald-400 font-bold px-2 py-0.5 rounded">
+                  Section 42 Registered
+                </span>
+              </div>
+
+              <div className="space-y-3 text-xs">
+                <div className="flex justify-between p-3 bg-zinc-800/40 rounded-xl border border-zinc-800">
+                  <span className="text-zinc-400">Dispensing Pharmacist Name:</span>
+                  <span className="font-bold text-white">Sunil Kumar Sharma</span>
+                </div>
+                <div className="flex justify-between p-3 bg-zinc-800/40 rounded-xl border border-zinc-800">
+                  <span className="text-zinc-400">Registration Number:</span>
+                  <span className="font-mono font-bold text-white">UP-PH-49210</span>
+                </div>
+                <div className="flex justify-between p-3 bg-zinc-800/40 rounded-xl border border-zinc-800">
+                  <span className="text-zinc-400">State Registration Council:</span>
+                  <span className="font-semibold text-zinc-300">Uttar Pradesh Pharmacy Council</span>
+                </div>
+                <div className="flex justify-between p-3 bg-zinc-800/40 rounded-xl border border-zinc-800">
+                  <span className="text-zinc-400">Prescription Dispensing Authority:</span>
+                  <span className="font-bold text-emerald-400">Authorized Human & Veterinary Review</span>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          {/* Private Document Vault & Settlement Info */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+            {/* Private Vault Files */}
+            <div className="bg-zinc-900/90 border border-zinc-800 p-6 rounded-2xl shadow-lg">
+              <h4 className="text-sm font-black text-white mb-3 flex items-center gap-2">
+                <Package className="w-4 h-4 text-emerald-400" />
+                <span>Verified Private Document Vault</span>
+              </h4>
+              <p className="text-xs text-zinc-400 mb-4">
+                Encrypted repository access guarded by Supabase Private Bucket signed URLs.
+              </p>
+
+              <div className="space-y-2 text-xs">
+                <div className="flex items-center justify-between p-3 bg-zinc-800/30 rounded-xl border border-zinc-700/50">
+                  <div className="flex items-center gap-2">
+                    <FileSpreadsheet className="w-4 h-4 text-zinc-400" />
+                    <span className="text-zinc-200 font-medium">Form 20 Drug Sale Licence</span>
+                  </div>
+                  <span className="text-[11px] text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded">Verified</span>
+                </div>
+
+                <div className="flex items-center justify-between p-3 bg-zinc-800/30 rounded-xl border border-zinc-700/50">
+                  <div className="flex items-center gap-2">
+                    <FileSpreadsheet className="w-4 h-4 text-zinc-400" />
+                    <span className="text-zinc-200 font-medium">Premises Floor Plan & Cold-Chain Layout</span>
+                  </div>
+                  <span className="text-[11px] text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded">Verified</span>
+                </div>
+
+                <div className="flex items-center justify-between p-3 bg-zinc-800/30 rounded-xl border border-zinc-700/50">
+                  <div className="flex items-center gap-2">
+                    <FileSpreadsheet className="w-4 h-4 text-zinc-400" />
+                    <span className="text-zinc-200 font-medium">Pharmacist Council Certificate</span>
+                  </div>
+                  <span className="text-[11px] text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded">Verified</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Role-Based Permissions (RBAC Matrix) */}
+            <div className="bg-zinc-900/90 border border-zinc-800 p-6 rounded-2xl shadow-lg">
+              <h4 className="text-sm font-black text-white mb-3 flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                <span>Active Role Permissions Matrix ({currentRole.replace('_', ' ').toUpperCase()})</span>
+              </h4>
+              <p className="text-xs text-zinc-400 mb-4">
+                Enforced server-side via Supabase Row Level Security (RLS) policies.
+              </p>
+
+              <div className="space-y-2 text-xs">
+                <div className="flex items-center justify-between p-2.5 rounded-lg bg-zinc-800/40">
+                  <span className="text-zinc-300">Manage Staff, Settings & Payouts</span>
+                  <span className={`text-[11px] font-bold ${currentRole === 'pharmacy_owner' ? 'text-emerald-400' : 'text-zinc-500'}`}>
+                    {currentRole === 'pharmacy_owner' ? '✓ Authorized (Owner)' : '✗ Restricted'}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between p-2.5 rounded-lg bg-zinc-800/40">
+                  <span className="text-zinc-300">View & Approve Prescription Files</span>
+                  <span className={`text-[11px] font-bold ${currentRole === 'pharmacist' || currentRole === 'pharmacy_owner' ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {currentRole === 'pharmacist' || currentRole === 'pharmacy_owner' ? '✓ Authorized (Dispenser)' : '✗ Restricted (Staff)'}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between p-2.5 rounded-lg bg-zinc-800/40">
+                  <span className="text-zinc-300">Pick, Pack & Record Batches</span>
+                  <span className="text-[11px] font-bold text-emerald-400">
+                    ✓ Authorized (All Active Roles)
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between p-2.5 rounded-lg bg-zinc-800/40">
+                  <span className="text-zinc-300">Financial Reports & Commission Settlements</span>
+                  <span className={`text-[11px] font-bold ${currentRole === 'pharmacy_owner' ? 'text-emerald-400' : 'text-zinc-500'}`}>
+                    {currentRole === 'pharmacy_owner' ? '✓ Authorized (Owner)' : '✗ Restricted'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
           </div>
 
         </div>

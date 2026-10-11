@@ -3,12 +3,17 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { apiRouter } from './routes/api';
 
+import { secureHeaders, corsOriginVerifier, generalApiLimiter } from './middleware/security';
+
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-app.use(cors());
+// S1 Security Baseline: Strict Security Headers, Origin-Verified CORS, & Baseline Rate Limiter
+app.use(secureHeaders);
+app.use(cors({ origin: corsOriginVerifier, credentials: true }));
+app.use(generalApiLimiter.getMiddleware());
 app.use(express.json());
 
 // Root Welcome & Discovery

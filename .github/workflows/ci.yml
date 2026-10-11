@@ -1,0 +1,194 @@
+name: Medcure Platform CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop, staging]
+  pull_request:
+    branches: [main, develop, staging]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ==========================================================================
+  # 0. MONOREPO ARCHITECTURAL BOUNDARY & DEPENDENCY RULES CHECK
+  # ==========================================================================
+  dependency-rules:
+    name: Monorepo Dependency Rules Verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Verify Architectural Boundaries & Dependency Rules
+        run: node scripts/check_dependency_rules.js
+
+  # ==========================================================================
+  # 1. PATHS FILTER: TARGETED CI EXECUTION
+  # ==========================================================================
+  changes:
+    name: Detect Changed Subsystems
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      web: ${{ steps.filter.outputs.web }}
+      packages: ${{ steps.filter.outputs.packages }}
+      customer: ${{ steps.filter.outputs.customer }}
+      rider: ${{ steps.filter.outputs.rider }}
+      merchant: ${{ steps.filter.outputs.merchant }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+            web:
+              - 'web/**'
+              - 'apps/admin_web/**'
+            packages:
+              - 'packages/**'
+            customer:
+              - 'apps/customer/**'
+              - 'packages/**'
+            rider:
+              - 'apps/rider/**'
+              - 'packages/**'
+            merchant:
+              - 'apps/merchant/**'
+              - 'packages/**'
+
+  # ==========================================================================
+  # 2. BACKEND: LINT, TYPECHECK, MIGRATION CHECK & RLS/RBAC SUITE
+  # ==========================================================================
+  backend-test:
+    name: Backend Security, Migrations & RLS Verification
+    needs: [changes, dependency-rules]
+    if: ${{ needs.changes.outputs.backend == 'true' || github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgrespassword
+          POSTGRES_DB: medcure_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: backend/package.json
+
+      - name: Install backend dependencies
+        run: npm ci
+        working-directory: backend
+
+      - name: TypeScript Type-Check
+        run: npx tsc --noEmit
+        working-directory: backend
+
+      - name: Verify Clean Database Migrations
+        env:
+          PGPASSWORD: postgrespassword
+        run: |
+          echo "Applying migrations in sequence against clean PostgreSQL..."
+          for sqlfile in $(ls -v backend/migrations/*.sql); do
+            echo "Applying $sqlfile..."
+            psql -h localhost -p 5432 -U postgres -d medcure_test -f "$sqlfile" || exit 1
+          done
+          echo "All migrations verified successfully."
+
+      - name: Run Test Suite (RLS, RBAC, Auth, Rate Limits, Feature Flags, Multi-App B1)
+        run: npm test
+        working-directory: backend
+        env:
+          NODE_ENV: test
+          PORT: 4000
+          SUPABASE_URL: http://localhost:54321
+          SUPABASE_ANON_KEY: mock-anon-key-test
+          SUPABASE_SERVICE_ROLE_KEY: mock-service-role-test
+
+  # ==========================================================================
+  # 3. WEB APPS: TYPECHECK & PRODUCTION BUNDLE VERIFICATION
+  # ==========================================================================
+  web-build:
+    name: Admin Web Frontend Build & Type-Check
+    needs: [changes, dependency-rules]
+    if: ${{ needs.changes.outputs.web == 'true' || github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: web/package.json
+
+      - name: Install web dependencies
+        run: npm ci
+        working-directory: web
+
+      - name: Verify Web TypeScript & Build Production Bundle
+        run: npm run build
+        working-directory: web
+        env:
+          VITE_API_BASE_URL: https://api.medcure.in
+
+  # ==========================================================================
+  # 4. FLUTTER APPS: STATIC ANALYSIS & TESTS
+  # ==========================================================================
+  flutter-analysis:
+    name: Flutter Apps Static Analysis & Tests
+    needs: [changes, dependency-rules]
+    if: ${{ needs.changes.outputs.customer == 'true' || needs.changes.outputs.rider == 'true' || needs.changes.outputs.merchant == 'true' || github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.22.x'
+          channel: 'stable'
+          cache: true
+
+      - name: Verify Flutter Apps & Packages Analyze
+        run: |
+          for app in apps/customer apps/rider apps/merchant; do
+            if [ -f "$app/pubspec.yaml" ]; then
+              echo "Analyzing $app..."
+              (cd "$app" && flutter pub get && flutter analyze --no-fatal-infos)
+            fi
+          done

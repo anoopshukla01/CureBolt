@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import '../services/auth_service.dart';
+import 'auth/phone_entry_screen.dart';
+import 'auth/profile_setup_screen.dart';
 import 'category_selection_screen.dart';
 
 class SplashOnboardingScreen extends StatelessWidget {
@@ -111,10 +114,28 @@ class SplashOnboardingScreen extends StatelessWidget {
                         elevation: 0,
                       ),
                       onPressed: () {
-                        Navigator.pushReplacement(
-                          context,
-                          MaterialPageRoute(builder: (_) => const CategorySelectionScreen()),
-                        );
+                        final auth = AuthService();
+                        if (!auth.isAuthenticated) {
+                          Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(builder: (_) => PhoneEntryScreen(authService: auth)),
+                          );
+                        } else if (!(auth.currentUser?.isProfileComplete ?? false)) {
+                          Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => ProfileSetupScreen(
+                                authService: auth,
+                                phone: auth.currentUser?.phone ?? '',
+                              ),
+                            ),
+                          );
+                        } else {
+                          Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(builder: (_) => const CategorySelectionScreen()),
+                          );
+                        }
                       },
                       child: const Row(
                         mainAxisAlignment: MainAxisAlignment.center,

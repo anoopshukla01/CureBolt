@@ -4,7 +4,7 @@ import {
   ArrowRight, 
   ChevronRight 
 } from 'lucide-react';
-import { Product, CartItem, Order, HealthcareDomain, CodReconciliationData } from './types';
+import { Product, CartItem, Order, HealthcareDomain } from './types';
 import { ProductCard } from './components/ProductCard';
 import { ProductDetailView } from './components/ProductDetailView';
 import { Header } from './components/Header';
@@ -13,6 +13,7 @@ import { CartDrawer } from './components/CartDrawer';
 import { OcrModal } from './components/OcrModal';
 import { LiveTelemetryModal } from './components/LiveTelemetryModal';
 import { PharmacyPortal } from './components/PharmacyPortal';
+import { AdminPortal } from './components/AdminPortal';
 
 const API_BASE = 'http://localhost:4000/api/v1';
 
@@ -54,12 +55,6 @@ export default function App() {
   const [, setOrders] = useState<Order[]>([]);
   const [activeTrackOrder, setActiveTrackOrder] = useState<Order | null>(null);
   const [showTrackingModal, setShowTrackingModal] = useState(false);
-
-  // COD Cash Reconciliation State (Admin)
-  const [reconData, setReconData] = useState<CodReconciliationData | null>(null);
-  const [settleAmount, setSettleAmount] = useState<number>(0);
-  const [settleRef, setSettleRef] = useState<string>('SBI-GKP-CASH-DEP-98124');
-  const [settleMessage, setSettleMessage] = useState<string | null>(null);
 
   // Seed Catalog Items (Matches Screenshot 1 & 2)
   const defaultProducts: Product[] = [
@@ -322,28 +317,12 @@ export default function App() {
     }
   };
 
-  const fetchReconciliation = async () => {
-    try {
-      const res = await fetch(`${API_BASE}/admin/cod/reconciliation`);
-      const data = await res.json();
-      if (data.reconciliation) {
-        setReconData(data.reconciliation);
-        if (data.reconciliation.riders && data.reconciliation.riders.length > 0) {
-          setSettleAmount(data.reconciliation.riders[0].outstandingCash);
-        }
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
   useEffect(() => {
     fetchProducts();
   }, [selectedDomain, searchQuery]);
 
   useEffect(() => {
     fetchOrders();
-    fetchReconciliation();
   }, []);
 
   // Filter products by domain & query & category
@@ -614,76 +593,9 @@ export default function App() {
           />
         </main>
       ) : (
-        /* ADMIN & COD RECONCILIATION STATION */
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1">
-          <div className="bg-[#18181b] border border-[#27272a] rounded-2xl p-6">
-            <h2 className="text-xl font-black text-white mb-2">Admin & Field COD Cash Reconciliation Station</h2>
-            <p className="text-xs text-zinc-400 mb-6">Gorakhpur Dispatch Operations • Total Field Collections & SBI Bank Deposit Remittance</p>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-              <div className="p-4 bg-zinc-900 border border-zinc-800 rounded-xl">
-                <span className="text-xs text-zinc-400 block mb-1">Total Doorstep COD Collected</span>
-                <span className="text-2xl font-black text-emerald-400">
-                  ₹{reconData?.collections ? reconData.collections.reduce((sum, c) => sum + c.amountCollected, 0).toFixed(2) : '485.00'}
-                </span>
-              </div>
-              <div className="p-4 bg-zinc-900 border border-zinc-800 rounded-xl">
-                <span className="text-xs text-zinc-400 block mb-1">Total Remitted to Bank</span>
-                <span className="text-2xl font-black text-white">
-                  ₹{reconData?.settlements ? reconData.settlements.reduce((sum, s) => sum + s.amountDeposited, 0).toFixed(2) : '0.00'}
-                </span>
-              </div>
-              <div className="p-4 bg-zinc-900 border border-zinc-800 rounded-xl">
-                <span className="text-xs text-zinc-400 block mb-1">Outstanding Rider Cash-in-Hand</span>
-                <span className="text-2xl font-black text-amber-400">
-                  ₹{reconData?.total_outstanding_cash?.toFixed(2) || '485.00'}
-                </span>
-              </div>
-            </div>
-
-            {/* Settle Form */}
-            <div className="p-4 bg-zinc-900 border border-zinc-800 rounded-xl">
-              <h3 className="text-xs font-bold text-zinc-300 uppercase tracking-wider mb-3">Execute End-of-Day Bank Remittance</h3>
-              <div className="flex flex-col sm:flex-row gap-3">
-                <input
-                  type="number"
-                  value={settleAmount}
-                  onChange={e => setSettleAmount(parseFloat(e.target.value) || 0)}
-                  placeholder="Amount"
-                  className="bg-zinc-800 border border-zinc-700 px-3 py-2 rounded-lg text-xs text-white"
-                />
-                <input
-                  type="text"
-                  value={settleRef}
-                  onChange={e => setSettleRef(e.target.value)}
-                  placeholder="Bank Deposit Ref"
-                  className="bg-zinc-800 border border-zinc-700 px-3 py-2 rounded-lg text-xs text-white flex-1"
-                />
-                <button
-                  onClick={async () => {
-                    try {
-                      const res = await fetch(`${API_BASE}/admin/cod/settle`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ riderId: 'rider-1', amount: settleAmount, depositReference: settleRef })
-                      });
-                      const d = await res.json();
-                      if (d.settlement) {
-                        setSettleMessage(`Successfully deposited ₹${d.settlement.amount} (Ref: ${d.settlement.depositReference})`);
-                        fetchReconciliation();
-                      }
-                    } catch (e) {
-                      console.error(e);
-                    }
-                  }}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold"
-                >
-                  Record Bank Deposit
-                </button>
-              </div>
-              {settleMessage && <p className="text-xs text-emerald-400 font-bold mt-2">{settleMessage}</p>}
-            </div>
-          </div>
+        /* PLATFORM ADMIN, DISPATCHER & SUPPORT OPERATOR DASHBOARD */
+        <main className="flex-1">
+          <AdminPortal />
         </main>
       )}
 

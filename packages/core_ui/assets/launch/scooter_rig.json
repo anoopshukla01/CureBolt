@@ -1,0 +1,28 @@
+{
+  "canvasWidth": 1024,
+  "canvasHeight": 975,
+  "groundContactY": 965,
+  "frontWheel": {
+    "centerX": 242,
+    "centerY": 845,
+    "radius": 120,
+    "file": "wheel_front.png"
+  },
+  "rearWheel": {
+    "centerX": 730,
+    "centerY": 835,
+    "radius": 110,
+    "file": "wheel_rear.png"
+  },
+  "wheelbase": 488,
+  "headPivot": {
+    "x": 450,
+    "y": 310
+  },
+  "boxPivot": {
+    "x": 770,
+    "y": 580
+  },
+  "direction": "left_facing",
+  "nativeEntryDirection": "enter_from_right_exit_to_left"
+}

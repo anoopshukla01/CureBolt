@@ -1,0 +1,27 @@
+name: medcure_monorepo
+repository: https://github.com/medcure/medcure
+
+packages:
+  - apps/**
+  - packages/**
+
+scripts:
+  analyze:
+    run: melos exec -- "flutter analyze --no-fatal-infos"
+    description: Run flutter analyze across all packages and apps.
+
+  test:
+    run: melos exec --dir-exists="test" -- "flutter test"
+    description: Run flutter test in all apps and packages with tests.
+
+  format:check:
+    run: melos exec -- "dart format --output=none --set-exit-if-changed ."
+    description: Verify code formatting.
+
+  clean:
+    run: melos exec -- "flutter clean"
+    description: Clean build artifacts.
+
+  check:deps:
+    run: node scripts/check_dependency_rules.js
+    description: Validate monorepo architectural boundaries and dependency rules.

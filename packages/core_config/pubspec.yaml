@@ -1,0 +1,18 @@
+name: core_config
+description: Remote configuration, feature flags and force-update checking for Medcure apps.
+version: 1.0.0
+publish_to: 'none'
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.2.2
+  shared_preferences: ^2.3.2
+
+  core_ui:
+    path: ../core_ui
+  core_l10n:
+    path: ../core_l10n
