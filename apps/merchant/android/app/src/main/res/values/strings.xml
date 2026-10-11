@@ -1,0 +1,6 @@
+<resources>
+    <string name="app_name">CureBolt Pharmacy: Counter Display</string>
+    <string name="title_activity_main">CureBolt Counter</string>
+    <string name="package_name">in.curebolt.merchant</string>
+    <string name="custom_url">in.curebolt.merchant</string>
+</resources>
